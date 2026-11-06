@@ -6,6 +6,7 @@
 
 输出:
     bank/papers.json        试卷元数据(地区、年份、类型、题量、满分)
+    (另外合并 bank/source/*.json 中按统一格式整理的试卷)
     bank/questions.jsonl    每行一道题(题干、答案、详解、知识点、题眼、难度先验、素养标签)
 
 知识库目录约定(与作者整理的详解库一致):
@@ -26,6 +27,7 @@ from pathlib import Path
 from bs4 import BeautifulSoup, Comment
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from mathinsight.answers import count_blanks, numeric_answer  # noqa: E402
 from mathinsight.taxonomy import Taxonomy  # noqa: E402
 
 # (paper_id, 相对路径, 地区, 年份, 类别, 标题, 知识点来源)
@@ -95,6 +97,47 @@ def strip_blocks(sec):
         a.decompose()
 
 
+# 编者附注(版本比对、来源说明、核对记录)只用于整理过程, 不进入公开题库
+EDITORIAL = re.compile(
+    "另版|乙版|甲版|版本|原题待核|网传|已更正|回忆版|排印版|转载|人人文库|教习网|zizzs|自主选拔|高考100|良师宝|"
+    "eol|51test|DOC985|菁优|博客园|微博|中国教育在线|试卷图|答案版|解析版|原卷扫描|sympy|数值回代|枚举验证|复核|"
+    "本页|原文此处|考试院评析")
+CAPTION = re.compile("原卷|截自|重画|按原图")
+
+
+def _drop_rest_of_line(el):
+    nxt = el.next_sibling
+    while nxt is not None and getattr(nxt, "name", None) != "br":
+        cur, nxt = nxt, nxt.next_sibling
+        cur.extract()
+
+
+def clean_editorial(html: str) -> str:
+    """去掉题干/详解里的编者附注, 保留「易错」「注意」等教学提示。"""
+    if not html or not EDITORIAL.search(html) and not CAPTION.search(html):
+        return html
+    soup = BeautifulSoup(html, "html.parser")
+    for el in soup.select("span.warn, span.inf, span.note, p.note, div.note"):
+        if el.parent is None:
+            continue
+        t = el.get_text("", strip=True)
+        if not EDITORIAL.search(t):
+            continue
+        if len(t) <= 8:            # 「另版」「原题待核」之类的行内标记: 连同其后的说明一起去掉
+            _drop_rest_of_line(el)
+        el.decompose()
+    for cap in soup.select("figcaption"):
+        if CAPTION.search(cap.get_text()):
+            cap.decompose()
+    for a in soup.select("a[href]"):
+        p = a.find_parent("p")
+        if a["href"].lower().split("#")[0].endswith(".pdf") and p is not None:
+            p.decompose()
+    out = str(soup)
+    out = re.sub(r"(\s*<br/?>\s*)+$", "", out.strip())
+    return out
+
+
 def answer_of(sec) -> str:
     ans = sec.select_one("div.answer")
     if ans:
@@ -146,7 +189,6 @@ def parse_paper(root: Path, tax: Taxonomy, meta) -> tuple[dict, list[dict]]:
     qs = []
     for i, (s, no, qtype, score, optional) in enumerate(raw):
         warn = bool(s.find(string=re.compile("原题待核")))
-        diff_net = bool(s.find(string=re.compile("与网传答案不同")))
         strip_blocks(s)
         h2 = s.find("h2")
         h2.decompose()
@@ -168,9 +210,9 @@ def parse_paper(root: Path, tax: Taxonomy, meta) -> tuple[dict, list[dict]]:
             "region": region,
             "year": year,
             "kind": kind,
-            "stem_html": stem,
-            "answer_html": answer,
-            "solution_html": solution,
+            "stem_html": clean_editorial(stem),
+            "answer_html": clean_editorial(answer),
+            "solution_html": clean_editorial(solution),
             "sections": sections,
             "tiyan_tag": tag,
             "tiyan": ty_items,
@@ -178,7 +220,7 @@ def parse_paper(root: Path, tax: Taxonomy, meta) -> tuple[dict, list[dict]]:
             "has_figure": "<svg" in stem or "<img" in stem,
             "verified": not warn,
             "optional": optional,
-            "note": "答案与网传版本不同，已用符号计算复核" if diff_net else "",
+            "note": "",
         }
         tax.annotate(q)
         qs.append(q)
@@ -187,10 +229,48 @@ def parse_paper(root: Path, tax: Taxonomy, meta) -> tuple[dict, list[dict]]:
     return paper, qs
 
 
+def load_source(path: Path, tax: Taxonomy) -> tuple[dict, list[dict]]:
+    """读取单套试卷的结构化 JSON(bank/source/<试卷号>.json), 补难度先验与标注。"""
+    d = json.loads(path.read_text(encoding="utf-8"))
+    meta = d["paper"]
+    raw = sorted(d["questions"], key=lambda q: q["no"])
+    n = len(raw)
+    types = [q["type"] for q in raw]
+    qs = []
+    for i, r in enumerate(raw):
+        last_of_type = (i == n - 1) or types[i + 1] != r["type"]
+        sections = []
+        for s in r.get("sections", []):
+            s = {"book": s["book"], "sec": s.get("sec", ""), "detail": s.get("detail", "")}
+            if s["book"] == "旧教材":
+                s["name"] = s["detail"]
+            sections.append(s)
+        stem = clean_editorial(r["stem_html"])
+        q = {
+            "id": f"{meta['id']}-{r['no']:02d}", "paper": meta["id"], "no": r["no"],
+            "type": r["type"], "score": r["score"], "region": meta["region"], "year": meta["year"],
+            "kind": meta["kind"], "stem_html": stem,
+            "answer_html": clean_editorial(r["answer_html"]),
+            "solution_html": clean_editorial(r.get("solution_html", "")),
+            "sections": sections, "tiyan_tag": r.get("tiyan_tag", ""), "tiyan": r.get("tiyan", []),
+            "difficulty": r.get("difficulty") or difficulty_prior(i, n, r["type"], last_of_type),
+            "has_figure": "<svg" in stem or "<img" in stem, "verified": True,
+            "optional": bool(r.get("optional")), "note": "",
+        }
+        tax.annotate(q)
+        qs.append(q)
+    paper = {"id": meta["id"], "title": meta["title"], "region": meta["region"], "year": meta["year"],
+             "kind": meta["kind"], "count": len(qs), "full_score": full_score(qs)}
+    if meta.get("template"):
+        paper["template"] = meta["template"]
+    return paper, qs
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("kb_root")
     ap.add_argument("--out", default=str(Path(__file__).resolve().parents[1] / "bank"))
+    ap.add_argument("--overrides", help="逐题修订文件 {题号: {字段: 新内容}}, 用于编辑校订")
     a = ap.parse_args()
     root = Path(a.kb_root)
     out = Path(a.out)
@@ -205,6 +285,33 @@ def main():
         papers.append(p)
         allq += qs
         print(f"{p['id']:<16} {p['count']:>3} 题  满分 {p['full_score']}")
+    for path in sorted((out / "source").glob("*.json")):
+        p, qs = load_source(path, tax)
+        papers.append(p)
+        allq += qs
+        print(f"{p['id']:<16} {p['count']:>3} 题  满分 {p['full_score']}")
+    if a.overrides:
+        fix = json.loads(Path(a.overrides).read_text(encoding="utf-8"))
+        for q in allq:
+            if q["id"] in fix:
+                q.update(fix[q["id"]])
+                q["has_figure"] = "<svg" in q["stem_html"] or "<img" in q["stem_html"]
+    # 填空题数值答案（供网页自动判分）；拿不准的不写
+    n_fill = n_num = 0
+    for q in allq:
+        q.pop("answer_num", None)
+        if q["type"] != "填空":
+            continue
+        n_fill += 1
+        vals = numeric_answer(q["answer_html"], blanks=count_blanks(q["stem_html"]))
+        if vals is not None:
+            q["answer_num"] = vals
+            n_num += 1
+    print(f"填空题 {n_fill} 道，其中 {n_num} 道可自动判分（answer_num）")
+    order = {"高考": 0, "模拟": 1}
+    papers.sort(key=lambda p: (order.get(p["kind"], 2), p["region"] != "上海", p["region"], -p["year"], p["id"]))
+    rank = {p["id"]: i for i, p in enumerate(papers)}
+    allq.sort(key=lambda q: (rank[q["paper"]], q["no"]))
     (out / "papers.json").write_text(json.dumps(papers, ensure_ascii=False, indent=1), encoding="utf-8")
     with (out / "questions.jsonl").open("w", encoding="utf-8") as f:
         for q in allq:

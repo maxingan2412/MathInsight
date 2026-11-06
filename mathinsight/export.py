@@ -63,7 +63,7 @@ def run(class_dir: Path, bank: QuestionBank | None = None) -> dict:
 def bank_payload(bank: QuestionBank) -> dict:
     keep = ["id", "paper", "no", "type", "score", "region", "year", "kind", "stem_html", "answer_html",
             "solution_html", "sections", "units", "theme", "competencies", "tiyan_tag", "tiyan", "difficulty",
-            "verified", "optional", "note"]
+            "verified", "optional", "note", "answer_num"]
     return {"papers": list(bank.papers.values()), "stats": bank.stats(),
             "questions": [{k: q.get(k) for k in keep} for q in bank.questions]}
 

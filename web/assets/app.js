@@ -60,16 +60,8 @@
   function roleBadge(r) { return '<span class="badge ' + (r === '挑战' ? 'role-tiao' : 'role-gu') + '">' + esc(r) + '</span>'; }
   function qBadges(q) {
     var s = '<span class="badge type">' + esc(q.type) + '</span><span class="badge region">' + esc(q.region) + ' ' + q.year + ' ' + esc(q.kind) + '</span>';
-    if (q.verified === false) s += '<span class="badge unverified">题干未核对</span>';
     if (q.optional) s += '<span class="badge optional">选做</span>';
     return s;
-  }
-  /* 题干中的「另版」说明拆出来（练习模式提交前不显示，因其中可能含答案） */
-  function splitStem(q) {
-    var s = q.stem_html || '', i = s.indexOf('<span class="warn">另版');
-    if (i < 0) return { main: s, tail: '' };
-    var main = s.slice(0, i).replace(/(<br\s*\/?>\s*)+$/, '');
-    return { main: main, tail: s.slice(i) };
   }
   /* 选择题答案字母 */
   function answerLetters(q) {
@@ -78,6 +70,115 @@
     var r = /^[^A-D]*([A-D]+)/.exec(t);
     return r ? r[1] : '';
   }
+  /* ---------- 填空题数值判分（递归下降求值，不用 eval） ---------- */
+  var NUM_TOL = 1e-6;
+  function NumErr(msg) { this.message = msg || '没看懂这个写法，请检查'; }
+  function hasNumAnswer(q) { return q.type === '填空' && Array.isArray(q.answer_num) && q.answer_num.length > 0; }
+  function normNumInput(s) {
+    return String(s || '')
+      .replace(/[！-～]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); })
+      .replace(/　/g, ' ').replace(/[−–—﹣]/g, '-').replace(/[×·∙⋅]/g, '*').replace(/÷/g, '/')
+      .replace(/²/g, '^2').replace(/³/g, '^3').replace(/Π/g, 'π').toLowerCase();
+  }
+  function numTokens(s) {
+    var t = [], i = 0, m;
+    while (i < s.length) {
+      var c = s[i];
+      if (/\s/.test(c)) { i++; continue; }
+      if ((m = /^(\d+\.?\d*|\.\d+)/.exec(s.slice(i)))) { t.push({ k: 'num', v: parseFloat(m[1]) }); i += m[1].length; continue; }
+      if (s.substr(i, 2) === 'pi') { t.push({ k: 'pi' }); i += 2; continue; }
+      if (s.substr(i, 4) === 'sqrt') { t.push({ k: 'root', n: 2 }); i += 4; continue; }
+      if (c === 'π') t.push({ k: 'pi' });
+      else if (c === '√') t.push({ k: 'root', n: 2 });
+      else if (c === '∛') t.push({ k: 'root', n: 3 });
+      else if (c === '∜') t.push({ k: 'root', n: 4 });
+      else if ('+-*/^()'.indexOf(c) >= 0) t.push({ k: c });
+      else if (c === '%' || c === '°') t.push({ k: c });
+      else throw new NumErr();
+      i++;
+    }
+    return t;
+  }
+  /* 解析一空：返回 { v: 数值, unit: '' | '%' | '°' } */
+  function evalBlank(src) {
+    var t = numTokens(src), p = 0;
+    function peek() { return t[p]; }
+    function is(k) { return p < t.length && t[p].k === k; }
+    function startsAtom() { return is('num') || is('pi') || is('root') || is('('); }
+    function expr() {
+      var v = term();
+      while (is('+') || is('-')) { var op = t[p++].k, r = term(); v = op === '+' ? v + r : v - r; }
+      return v;
+    }
+    function term() {
+      var v = unary(), divided = false;
+      for (;;) {
+        if (is('*') || is('/')) {
+          var op = t[p++].k, r = unary();
+          if (op === '/') { if (r === 0) throw new NumErr(); v /= r; divided = true; } else v *= r;
+        } else if (startsAtom()) {
+          if (is('num')) throw new NumErr();  // 两个数直接相连，如 π2、(1)2
+          if (divided) throw new NumErr('写法有歧义，请加括号，如 2/(3π) 或 (2/3)π');
+          v *= unary();
+        } else return v;
+      }
+    }
+    function unary() {
+      if (is('-')) { p++; return -unary(); }
+      if (is('+')) { p++; return unary(); }
+      return power();
+    }
+    function power() {
+      var b = atom();
+      if (is('^')) { p++; var e = unary(); var r = Math.pow(b, e); if (!isFinite(r)) throw new NumErr(); return r; }
+      return b;
+    }
+    function atom() {
+      var tok = peek();
+      if (!tok) throw new NumErr();
+      if (tok.k === 'num') { p++; return tok.v; }
+      if (tok.k === 'pi') { p++; return Math.PI; }
+      if (tok.k === '(') { p++; var v = expr(); if (!is(')')) throw new NumErr(); p++; return v; }
+      if (tok.k === 'root') {
+        p++;
+        var x = atom();  // √ 只作用于紧跟的一个数、π、括号或根式：√2/2 = (√2)/2
+        if (x < 0) throw new NumErr();
+        return tok.n === 2 ? Math.sqrt(x) : Math.pow(x, 1 / tok.n);
+      }
+      throw new NumErr();
+    }
+    if (!t.length) throw new NumErr();
+    var v = expr(), unit = '';
+    if (is('%') || is('°')) unit = t[p++].k;
+    if (p !== t.length || !isFinite(v)) throw new NumErr();
+    return { v: v, unit: unit };
+  }
+  function numClose(x, a) { return Math.abs(x - a) <= NUM_TOL * Math.max(1, Math.abs(a)); }
+  /* 判分：返回 { result, marks } ；输入看不懂时抛 NumErr */
+  function gradeNum(q, input) {
+    var raw = normNumInput(input).trim();
+    if (!raw) throw new NumErr('请先填写答案');
+    var parts = raw.split(/[,;、]/).map(function (s) { return s.trim(); });
+    while (parts.length > 1 && !parts[parts.length - 1]) parts.pop();
+    var ans = q.answer_num;
+    if (parts.length !== ans.length) throw new NumErr(ans.length > 1 ? '本题有 ' + ans.length + ' 个空，请按顺序用逗号或分号隔开' : '本题只有 1 个空，请只填一个数');
+    var vals = parts.map(evalBlank);
+    var marks = vals.map(function (b, i) {
+      // 带 % 或 ° 时两种读法都认：20% 既可对 0.2 也可对「____%」里的 20；30° 既可对 30 也可对 π/6
+      var cands = b.unit === '%' ? [b.v / 100, b.v] : b.unit === '°' ? [b.v, b.v * Math.PI / 180] : [b.v];
+      return cands.some(function (x) { return numClose(x, ans[i]); });
+    });
+    var k = marks.filter(Boolean).length;
+    return { result: k === ans.length ? 'right' : k > 0 ? 'partial' : 'wrong', marks: marks };
+  }
+  /* 正确答案的展示：取 key 标签内容，没有就取整段答案去掉段落标签与句末句号 */
+  function keyAnswerHtml(q) {
+    var re = /<span class="key">([\s\S]*?)<\/span>/g, m, out = [];
+    while ((m = re.exec(q.answer_html || ''))) out.push(m[1]);
+    if (out.length) return out.join('；');
+    return String(q.answer_html || '').replace(/<\/?p>/g, '').replace(/[。．]\s*$/, '');
+  }
+
   function lastStudent() { try { return localStorage.getItem('mi_last_student') || C.students[0].id; } catch (e) { return C.students[0].id; } }
   function setLastStudent(id) { try { localStorage.setItem('mi_last_student', id); } catch (e) { } }
   function cardHtml(title, sub, body, cls) {
@@ -224,18 +325,17 @@
   }
   function questionCard(q, extra, opts) {
     opts = opts || {};
-    var st = splitStem(q);
     var h = '<div class="qcard" id="qc-' + esc(q.id) + '"><div class="qcard-head"><span class="qid">' + esc(q.id) + '</span>' + qBadges(q) + '<span>' + q.score + ' 分</span><span>难度 ' + fix(q.difficulty, 2) + '</span>' + (q.tiyan_tag ? '<span class="chip violet">题眼：' + esc(q.tiyan_tag) + '</span>' : '') + '<span class="spacer"></span>' + (extra || '') + '</div>' +
-      '<div class="qbody">' + st.main + (opts.hideTail ? '' : (st.tail ? '<div class="small mt">' + st.tail + '</div>' : '')) + '</div>' +
+      '<div class="qbody">' + (q.stem_html || '') + '</div>' +
       '<div class="small muted mt">' + q.units.map(chipUnit).join('') + ' ' + (q.sections || []).map(function (s) { return '<span class="chip gray">' + esc(s.book + ' ' + s.sec + ' ' + s.name) + '</span>'; }).join('') + '</div>';
     if (opts.toggles) {
       h += '<div class="qtoggles">' +
         (q.tiyan && q.tiyan.length ? '<button class="btn sm" data-tg="tiyan" data-q="' + esc(q.id) + '">题眼</button>' : '') +
         '<button class="btn sm" data-tg="answer" data-q="' + esc(q.id) + '">答案</button>' +
-        '<button class="btn sm" data-tg="solution" data-q="' + esc(q.id) + '">详解</button></div>' +
+        (q.solution_html ? '<button class="btn sm" data-tg="solution" data-q="' + esc(q.id) + '">详解</button>' : '') + '</div>' +
         '<div class="qsec qbody" data-sec="tiyan" style="display:none"><div class="qsec-title">题眼（卡点与打通）</div><ul class="tiyan-list">' + (q.tiyan || []).map(function (t) { return '<li>' + t + '</li>'; }).join('') + '</ul></div>' +
         '<div class="qsec qbody" data-sec="answer" style="display:none"><div class="qsec-title">答案</div>' + (q.answer_html || '') + '</div>' +
-        '<div class="qsec qbody" data-sec="solution" style="display:none"><div class="qsec-title">详解</div>' + (q.solution_html || '') + (q.note ? '<div class="note mt">备注：' + esc(q.note) + '</div>' : '') + '</div>';
+        '<div class="qsec qbody" data-sec="solution" style="display:none"><div class="qsec-title">详解</div>' + (q.solution_html || '') + '</div>';
     }
     return h + '</div>';
   }
@@ -511,11 +611,10 @@
 
     function renderQ() {
       var it = items[idx], q = it.q, rec = st.records[q.id], done = !!rec || live.submitted;
-      var choice = q.type === '单选' || q.type === '多选';
-      var stem = splitStem(q);
+      var choice = q.type === '单选' || q.type === '多选', numq = !choice && hasNumAnswer(q);
       var levels = it.hints.slice(); if (q.tiyan && q.tiyan.length) levels = levels.concat(q.tiyan.map(function (t) { return '【题眼】' + t; }));
       var h2 = '<div class="qcard-head"><span>第 ' + (idx + 1) + ' / ' + items.length + ' 题</span>' + chipUnit(it.unit) + roleBadge(it.role) + '<span class="chip gray">预计得分率 ' + pct(it.pred) + '</span><span class="qid">' + esc(q.id) + '</span>' + qBadges(q) + '<span>' + q.score + ' 分</span></div>';
-      h2 += '<div class="qbody" style="font-size:15px">' + stem.main + (done && stem.tail ? '<div class="small mt">' + stem.tail + '</div>' : '') + '</div>';
+      h2 += '<div class="qbody" style="font-size:15px">' + (q.stem_html || '') + '</div>';
       if (choice) {
         var ans = answerLetters(q), pickedSet = rec ? rec.answer : live.picked.join('');
         h2 += '<div class="muted small mt">' + (q.type === '多选' ? '多选：选全对得「全对」，只选对一部分且无错选得「部分」，有错选得「错」' : '单选：点选一个选项后提交') + '</div><div class="options">' + ['A', 'B', 'C', 'D'].map(function (L) {
@@ -524,6 +623,10 @@
           else if (live.picked.indexOf(L) >= 0) cls += ' on';
           return '<button class="' + cls + '" data-opt="' + L + '"' + (done ? ' disabled' : '') + '>' + L + '</button>';
         }).join('') + '</div>';
+      } else if (numq) {
+        h2 += '<div class="muted small mt">填空' + (q.answer_num.length > 1 ? '（共 ' + q.answer_num.length + ' 空）' : '') + '：填数值后提交，系统自动判分</div>';
+        h2 += '<input class="input num-answer" id="pr-num" autocomplete="off" placeholder="输入数值答案；多空用逗号或分号隔开，可写 1/3、2√3、√2/2、π/6、-0.5" value="' + esc(rec ? rec.answer || '' : live.text) + '"' + (done ? ' disabled' : '') + '>';
+        if (live.err && !done) h2 += '<div class="result-box warn" id="pr-num-msg">' + esc(live.err) + '</div>';
       } else {
         h2 += '<textarea class="answer-box" id="pr-text" placeholder="写下你的答案或关键步骤（提交后对照参考答案自评）"' + (done ? ' disabled' : '') + '>' + esc(rec ? rec.text || '' : live.text) + '</textarea>';
       }
@@ -541,12 +644,12 @@
       if (done) {
         if (rec) {
           var txt = { right: '全对', partial: '部分正确', wrong: '不会 / 错误' }[rec.result];
-          h2 += '<div class="result-box ' + rec.result + '">结果：<b>' + txt + '</b>' + (choice ? '（你的选择 ' + (rec.answer || '—') + '，正确答案 ' + answerLetters(q) + '）' : '') + ' · 用了 ' + (rec.hints || 0) + ' 级提示 · ' + dateStr(rec.ts) + '</div>';
+          h2 += '<div class="result-box ' + rec.result + '">结果：<b>' + txt + '</b>' + (choice ? '（你的选择 ' + (rec.answer || '—') + '，正确答案 ' + answerLetters(q) + '）' : rec.auto === 'num' ? '（你的答案 ' + esc(rec.answer || '—') + '，正确答案 ' + keyAnswerHtml(q) + (rec.marks && rec.marks.length > 1 ? '；' + rec.marks.map(function (ok, i) { return '第 ' + (i + 1) + ' 空' + (ok ? '对' : '错'); }).join('，') : '') + '）' : '') + ' · 用了 ' + (rec.hints || 0) + ' 级提示 · ' + dateStr(rec.ts) + '</div>';
         } else {
           h2 += '<div class="result-box pending">已提交，请对照参考答案自评：</div><div class="practice-actions"><button class="btn" data-grade="right">全对</button><button class="btn" data-grade="partial">部分</button><button class="btn" data-grade="wrong">不会</button></div>';
         }
         h2 += '<div class="qsec qbody"><div class="qsec-title">参考答案</div>' + (q.answer_html || '') + '</div>';
-        h2 += '<div class="qtoggles"><button class="btn sm" id="pr-sol">查看详解</button></div><div class="qsec qbody" id="pr-sol-box" style="display:none"><div class="qsec-title">详解</div>' + (q.solution_html || '') + '</div>';
+        if (q.solution_html) h2 += '<div class="qtoggles"><button class="btn sm" id="pr-sol">查看详解</button></div><div class="qsec qbody" id="pr-sol-box" style="display:none"><div class="qsec-title">详解</div>' + q.solution_html + '</div>';
       }
       h2 += '<div class="practice-actions" style="justify-content:space-between;margin-top:16px"><button class="btn" id="pr-prev"' + (idx === 0 ? ' disabled' : '') + '>上一题</button><button class="btn" id="pr-next"' + (idx >= items.length - 1 ? ' disabled' : '') + '>下一题</button></div>';
       var box = byId('pr-q'); box.innerHTML = h2; tex(box);
@@ -557,6 +660,10 @@
       }); });
       var hb = byId('pr-hint'); if (hb) hb.addEventListener('click', function () { live.hintLevel++; renderQ(); });
       var ta = byId('pr-text'); if (ta) ta.addEventListener('input', function () { live.text = ta.value; });
+      var ni = byId('pr-num'); if (ni) {
+        ni.addEventListener('input', function () { live.text = ni.value; });
+        ni.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); var b = byId('pr-submit'); if (b) b.click(); } });
+      }
       var sb = byId('pr-submit'); if (sb) sb.addEventListener('click', function () {
         if (choice) {
           if (!live.picked.length) { alert('请先选择选项'); return; }
@@ -565,6 +672,14 @@
           else if (q.type === '多选' && live.picked.every(function (L) { return ans.indexOf(L) >= 0; })) result = 'partial';
           else result = 'wrong';
           st.records[q.id] = { result: result, answer: got, hints: live.hintLevel, ts: Date.now() }; st.lastTs = Date.now(); saveState(sid, st);
+        } else if (numq) {
+          var g;
+          try { g = gradeNum(q, live.text); } catch (e) {
+            live.err = e instanceof NumErr ? e.message : '没看懂这个写法，请检查';
+            renderQ(); var ni2 = byId('pr-num'); if (ni2) ni2.focus(); return;
+          }
+          live.err = '';
+          st.records[q.id] = { result: g.result, answer: live.text.trim(), marks: g.marks, auto: 'num', hints: live.hintLevel, ts: Date.now() }; st.lastTs = Date.now(); saveState(sid, st);
         } else { live.submitted = true; }
         render();
       });
