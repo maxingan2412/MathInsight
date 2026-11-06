@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>数鉴（MathInsight）· 高中数学智能学情分析与个性化辅导系统</title>
+<link rel="stylesheet" href="vendor/katex.min.css">
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-logo">鉴</div>
+      <div class="brand-text">
+        <div class="brand-name">数鉴 <span style="font-weight:500;opacity:.75;font-size:.8em">MathInsight</span></div>
+        <div class="brand-sub">高中数学智能学情分析</div>
+      </div>
+    </div>
+    <nav class="nav" id="nav">
+      <a href="#/overview" data-route="overview"><span class="nav-ico">▦</span>班级总览</a>
+      <a href="#/student" data-route="student"><span class="nav-ico">◉</span>学生档案</a>
+      <a href="#/compare" data-route="compare"><span class="nav-ico">⇄</span>横向对比</a>
+      <a href="#/papers" data-route="papers"><span class="nav-ico">▤</span>试卷分析</a>
+      <a href="#/bank" data-route="bank"><span class="nav-ico">▣</span>题库</a>
+      <a href="#/practice" data-route="practice"><span class="nav-ico">✎</span>学生练习</a>
+    </nav>
+    <div class="sidebar-foot" id="sidebar-foot"></div>
+  </aside>
+  <div class="main">
+    <header class="topbar">
+      <div class="topbar-title">数鉴（MathInsight）· 高中数学智能学情分析与个性化辅导系统</div>
+      <div class="topbar-right" id="topbar-right"></div>
+    </header>
+    <div class="demo-banner">示例数据：学生姓名、成绩、评语均为程序生成的虚构数据</div>
+    <main class="view" id="view"></main>
+  </div>
+</div>
+<script src="vendor/echarts.min.js"></script>
+<script src="vendor/katex.min.js"></script>
+<script src="vendor/auto-render.min.js"></script>
+<script src="data/class.js"></script>
+<script src="data/bank.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>
