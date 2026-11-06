@@ -770,10 +770,10 @@
     // 知识板块
     var pk = pickUnits(p);
     function urow(u) { var ps = classPos(u.percentile); return '<tr><td class="u">' + esc(u.unit) + '</td><td class="m">' + pct(u.mastery) + '</td><td class="cm">班均 ' + pct(u.class_mean) + '</td><td><span class="rp-pos ' + ps.c + '">' + ps.t + '</span></td></tr>'; }
-    h += '<div class="rp-sec"><div class="rp-h">二、知识板块<span class="rp-note">掌握度：做该板块典型高考题的预计得分率</span><span class="rp-legend"><span class="sw b"></span>本人掌握度<span class="sw d"></span>班级平均<span class="lg good">绿字</span>擅长<span class="lg bad">红字</span>需加强</span></div><div class="rp-units">' +
+    h += '<div class="rp-sec"><div class="rp-h">二、知识板块<span class="rp-note">掌握度：做该板块典型高考题的预计得分率</span><span class="rp-legend"><span class="sw b"></span>本人掌握度<span class="sw d"></span>班级平均<span class="lg good">绿字</span>擅长<span class="lg bad">红字</span>重点</span></div><div class="rp-units">' +
       '<div class="rp-ulist"><div class="rp-sub good">相对擅长的板块</div><table class="rp-ut">' + pk.strong.map(urow).join('') + '</table>' +
-      '<div class="rp-sub bad">最需加强的板块</div><table class="rp-ut">' + pk.weak.map(urow).join('') + '</table>' +
-      '<div class="rp-tip">「擅长 / 需加强」是和' + esc(p.name) + '自己的整体水平相比得出的：有的板块分数不低，但比自身应有水平差一些，同样值得补。</div></div>' +
+      '<div class="rp-sub bad">下阶段重点板块</div><table class="rp-ut">' + pk.weak.map(urow).join('') + '</table>' +
+      '<div class="rp-tip">擅长与重点板块是和' + esc(p.name) + '自己的整体水平相比选出的，与下面的建议、推荐练习一一对应。</div></div>' +
       '<div class="rp-uchart"><div class="rp-chart-units" id="rp-units-' + k + '" style="height:' + (p.units.length * 16 + 8) + 'px"></div></div></div></div>';
     // 能力特点 + 失分原因
     var cs = p.competencies.slice().sort(function (a, b) { return b.delta - a.delta; });
