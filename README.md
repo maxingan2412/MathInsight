@@ -15,7 +15,7 @@
 <img alt="license" src="https://img.shields.io/badge/license-CC%20BY--NC--ND%204.0-lightgrey">
 </p>
 
-**[🌐 在线演示](https://maxingan2412.github.io/MathInsight/)** · **[🎬 介绍视频（3 分钟）](https://maxingan2412.github.io/MathInsight/video.html)** · [功能](#-核心功能) · [截图](#-界面预览) · [架构](#-系统架构) · [快速开始](#-快速开始) · [方法](docs/设计说明.md) · [路线图](#-路线图) · [许可](#-许可)
+**[🌐 在线演示](https://maxingan2412.github.io/MathInsight/)** · **[🎬 介绍视频（3 分钟）](https://maxingan2412.github.io/MathInsight/video.html)**（[B 站](https://www.bilibili.com/video/BV1A54z6nERn)） · [功能](#-核心功能) · [截图](#-界面预览) · [架构](#-系统架构) · [快速开始](#-快速开始) · [方法](docs/设计说明.md) · [路线图](#-路线图) · [许可](#-许可)
 
 </div>
 
