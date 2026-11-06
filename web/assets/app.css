@@ -272,6 +272,72 @@ input, select, textarea { font-family: inherit; font-size: 13px; }
   .qbody { font-size: 15px; }
 }
 
+/* 学生阶段报告：一人一页 A4（纵向）。屏幕上显示为居中白纸，打印时去掉阴影 */
+.rp-toolbar { position: sticky; top: 56px; z-index: 10; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; width: 210mm; margin: 0 auto 14px; padding: 10px 12px; background: #fff; border-radius: 10px; box-shadow: var(--shadow); }
+.rp-toolbar .spacer { flex: 1; }
+.rp-toolbar a.btn:hover { text-decoration: none; }
+.rp-tb-info { color: var(--ink2); font-size: 12px; margin: 0 4px; }
+.rp { -webkit-print-color-adjust: exact; print-color-adjust: exact; color: #1d1d1b; }
+.rp-paper { width: 210mm; height: 297mm; padding: 12mm; margin: 0 auto 22px; background: #fff; box-shadow: 0 2px 6px rgba(16,24,40,.10), 0 10px 30px rgba(16,24,40,.10); display: flex; flex-direction: column; overflow: hidden; font-size: 12px; line-height: 1.5; }
+.rp-paper > .rp-sec, .rp-paper > .rp-two { flex: none; }
+.rp-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; padding-bottom: 8px; border-bottom: 2px solid #1c5cab; margin-bottom: 8px; }
+.rp-brand { font-size: 19px; font-weight: 700; color: #0d366b; letter-spacing: .5px; }
+.rp-class { color: var(--ink2); font-size: 12px; margin-top: 2px; }
+.rp-who { text-align: right; }
+.rp-name { font-size: 18px; font-weight: 700; }
+.rp-name span { font-size: 12px; font-weight: 400; color: var(--ink2); margin-left: 10px; }
+.rp-meta { color: var(--ink2); font-size: 11.5px; margin-top: 2px; }
+.rp-sec { margin-top: 7px; }
+.rp-h { font-size: 13.5px; font-weight: 700; color: #0d366b; border-left: 4px solid #2a78d6; padding-left: 7px; margin-bottom: 5px; line-height: 1.3; display: flex; align-items: baseline; gap: 10px; }
+.rp-note { font-size: 10.5px; font-weight: 400; color: var(--muted); }
+.rp-score { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 14px; align-items: center; }
+.rp-kpi { background: #f4f8fe; border-radius: 8px; padding: 8px 12px; }
+.rp-kpi-l { font-size: 11.5px; color: var(--ink2); }
+.rp-kpi-v { font-size: 26px; font-weight: 700; color: #0d366b; line-height: 1.2; }
+.rp-kpi-v small { font-size: 12px; font-weight: 500; color: var(--ink2); }
+.rp-kpi-r { font-size: 13px; margin-top: 2px; }
+.rp-kpi-c { font-size: 11.5px; margin-top: 2px; }
+.rp .up { color: #006300; } .rp .down { color: #a32626; }
+.rp-chart-trend { height: 146px; }
+.rp-units { display: grid; grid-template-columns: 318px minmax(0, 1fr); gap: 14px; align-items: center; }
+.rp-sub { font-size: 12px; font-weight: 700; margin: 2px 0 2px; }
+.rp-sub.good { color: #006300; } .rp-sub.bad { color: #a32626; margin-top: 6px; }
+.rp-ut { width: 100%; border-collapse: collapse; font-size: 12px; }
+.rp-ut td { padding: 2.5px 4px; border-bottom: 1px dashed #e4e6ea; white-space: nowrap; }
+.rp-ut td.u { font-weight: 600; width: 98px; }
+.rp-ut td.m { font-weight: 700; width: 40px; text-align: right; }
+.rp-ut td.cm { color: var(--muted); width: 66px; }
+.rp-pos { display: inline-block; padding: 0 7px; border-radius: 999px; font-size: 11px; }
+.rp-pos.good { background: #e6f6e6; color: #006300; } .rp-pos.bad { background: #fde9e9; color: #a32626; } .rp-pos.mid { background: #eef1f5; color: var(--ink2); }
+.rp-tip { font-size: 10.5px; color: var(--muted); margin-top: 6px; line-height: 1.45; }
+.rp-legend { margin-left: auto; font-size: 10px; font-weight: 400; color: var(--muted); }
+.rp-legend .sw { display: inline-block; width: 12px; height: 7px; border-radius: 2px; background: #6da7ec; margin: 0 3px 0 10px; vertical-align: middle; }
+.rp-legend .sw.d { width: 7px; height: 7px; background: #0b0b0b; transform: rotate(45deg); border-radius: 0; }
+.rp-legend .lg { margin-left: 10px; font-weight: 600; } .rp-legend .lg.good { color: #006300; } .rp-legend .lg.bad { color: #a32626; }
+.rp-two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+.rp-comp { font-size: 12px; margin-bottom: 4px; line-height: 1.55; }
+.rp-tag { display: inline-block; font-size: 10.5px; font-weight: 600; padding: 0 6px; border-radius: 4px; margin-right: 6px; }
+.rp-tag.good { background: #e6f6e6; color: #006300; } .rp-tag.bad { background: #fde9e9; color: #a32626; }
+.rp-errs { margin-bottom: 3px; }
+.rp-err { display: grid; grid-template-columns: 70px minmax(0, 1fr) 36px; gap: 6px; align-items: center; font-size: 11.5px; line-height: 1.6; }
+.rp-err .eb { height: 8px; background: #f1f2f4; border-radius: 4px; overflow: hidden; }
+.rp-err .eb span { display: block; height: 100%; background: #eb6834; border-radius: 4px; }
+.rp-err .ec { text-align: right; color: var(--ink2); }
+.rp-concl { font-size: 12px; }
+.rp-cmt { font-size: 12px; padding: 3px 8px; background: #f8f9fb; border-radius: 6px; margin-bottom: 3px; }
+.rp-cmt .d { color: var(--muted); font-size: 10.5px; margin-right: 8px; }
+.rp-adv { margin: 0; padding-left: 20px; font-size: 12px; line-height: 1.55; }
+.rp-adv li { margin-bottom: 1px; }
+.rp-prac { font-size: 11.5px; }
+.rp-prow { display: flex; gap: 8px; padding: 3px 0; border-bottom: 1px dashed #e4e6ea; }
+.rp-prow .pu { flex: 0 0 86px; font-weight: 600; }
+.rp-prow .pi { display: flex; flex-wrap: wrap; gap: 2px 12px; }
+.rp-q { white-space: nowrap; color: var(--ink2); }
+.rp-q .id { font-family: ui-monospace, Menlo, Consolas, monospace; color: var(--ink); margin-right: 4px; font-size: 11px; }
+.rp-q em { font-style: normal; color: #a2431c; }
+.rp-done { margin-top: 5px; font-size: 12px; font-weight: 600; color: #1c5cab; }
+.rp-foot { margin-top: auto; padding-top: 6px; border-top: 1px solid #e4e6ea; font-size: 10px; color: var(--muted); text-align: center; }
+
 /* 打印 */
 @media print {
   .sidebar, .topbar, .demo-banner, .page-actions, .student-list, .btn, .qtoggles, .pager { display: none !important; }
@@ -281,4 +347,10 @@ input, select, textarea { font-family: inherit; font-size: 13px; }
   .card { box-shadow: none; border: 1px solid #ddd; break-inside: avoid; }
   .grid { break-inside: avoid; }
   body { background: #fff; }
+  /* 报告页：A4 纵向，页边距 12mm；每位学生恰好一页 */
+  html, body, body.report-mode .main, body.report-mode .view { background: #fff !important; }
+  .rp-toolbar { display: none !important; }
+  .rp-paper { width: auto; height: 272mm; padding: 0; margin: 0; box-shadow: none; break-after: page; page-break-after: always; }
+  .rp-paper:last-child { break-after: auto; page-break-after: auto; }
 }
+@page { size: A4 portrait; margin: 12mm; }

@@ -25,10 +25,10 @@
     tooltip: { backgroundColor: '#fff', borderColor: '#e4e6ea', textStyle: { color: '#0b0b0b', fontSize: 12 } }
   });
 
-  function chart(el, opt) {
+  function chart(el, opt, initOpts) {
     if (typeof el === 'string') el = document.getElementById(el);
     if (!el) return null;
-    var c = echarts.init(el, 'mi');
+    var c = echarts.init(el, 'mi', initOpts);
     opt.animation = false;
     c.setOption(opt);
     charts.push(c);
@@ -212,11 +212,13 @@
     var query = {}; (qs[1] || '').split('&').forEach(function (kv) { if (!kv) return; var p = kv.split('='); query[decodeURIComponent(p[0])] = decodeURIComponent(p[1] || ''); });
     if (!PAGES[name]) { location.hash = '#/overview'; return; }
     if ((name === 'student' || name === 'practice') && !C.profiles[arg]) { location.hash = '#/' + name + '/' + lastStudent(); return; }
-    if (name === 'student' || name === 'practice') setLastStudent(arg);
+    if (name === 'report' && arg !== 'ALL' && !C.profiles[arg]) { location.hash = '#/report/' + lastStudent(); return; }
+    if (name === 'student' || name === 'practice' || (name === 'report' && arg !== 'ALL')) setLastStudent(arg);
+    document.body.classList.toggle('report-mode', name === 'report');
     disposeCharts();
     view.innerHTML = '';
     document.querySelectorAll('#nav a').forEach(function (a) {
-      a.classList.toggle('active', a.dataset.route === name);
+      a.classList.toggle('active', a.dataset.route === name || (name === 'report' && arg !== 'ALL' && a.dataset.route === 'student'));
       if (a.dataset.route === 'student') a.setAttribute('href', '#/student/' + lastStudent());
       if (a.dataset.route === 'practice') a.setAttribute('href', '#/practice/' + lastStudent());
     });
@@ -229,7 +231,7 @@
   PAGES.overview = function () {
     var ov = C.overview, em = ov.exam_means, last = em[em.length - 1], prev = em[em.length - 2];
     var delta = prev ? last.mean - prev.mean : 0;
-    var h = '<div class="page-head"><div><h1 class="page-title">班级总览 · ' + esc(C.meta.class) + '</h1><div class="page-desc">' + UNITS.length + ' 个知识板块 · ' + COMPS.length + ' 大核心素养 · 模型掌握度 = 学生做本板块典型高考题的预计得分率</div></div></div>';
+    var h = '<div class="page-head"><div><h1 class="page-title">班级总览 · ' + esc(C.meta.class) + '</h1><div class="page-desc">' + UNITS.length + ' 个知识板块 · ' + COMPS.length + ' 大核心素养 · 模型掌握度 = 学生做本板块典型高考题的预计得分率</div></div><div class="page-actions"><a class="btn" href="#/report/ALL">打印全班报告</a></div></div>';
     h += '<div class="grid cols-4 kpis">' +
       kpi('学生数', C.students.length, '人', '班级人数', '#2a78d6', '◉') +
       kpi('考试次数', C.exams.length, '次', esc(C.exams[0].date) + ' ～ ' + esc(C.exams[C.exams.length - 1].date), '#1baf7a', '▤') +
@@ -355,7 +357,7 @@
     var p = C.profiles[sid];
     var h = '<div class="two-col">' + studentListHtml(sid, 'student') + '<div>';
     h += '<div class="card mb"><div class="page-head" style="margin-bottom:8px"><div class="profile-head"><div class="avatar">' + esc(p.name.slice(0, 1)) + '</div><div><div class="profile-name">' + esc(p.name) + ' <span class="muted small">' + sid + '</span></div><div class="profile-meta">' + esc(C.meta.class) + ' · 总体能力 θ = ' + fix(p.theta, 2) + '（班内第 ' + thetaRank(sid) + ' 名） · 最近 ' + esc(p.trend[p.trend.length - 1].title) + ' ' + p.trend[p.trend.length - 1].total + ' 分 / 第 ' + p.trend[p.trend.length - 1].rank + ' 名</div></div></div>' +
-      '<div class="page-actions"><a class="btn primary" href="#/practice/' + sid + '">去练习</a><button class="btn" id="btn-print">打印报告</button></div></div>' +
+      '<div class="page-actions"><a class="btn primary" href="#/practice/' + sid + '">去练习</a><a class="btn" href="#/report/' + sid + '">打印报告</a></div></div>' +
       '<div class="tag-row"><span class="lbl">强项</span>' + p.strong.map(function (u) { return '<span class="chip good">' + esc(u) + '</span>'; }).join('') + '<span class="lbl" style="margin-left:14px">弱项</span>' + p.weak.map(function (u) { return '<span class="chip bad">' + esc(u) + '</span>'; }).join('') +
       '<span class="lbl" style="margin-left:14px">评语标签</span>' + p.tags.map(function (t) { return '<span class="chip ' + (t.sign === '+' ? 'good' : 'bad') + '">' + esc(t.category) + ' · ' + esc(t.tag) + '</span>'; }).join('') + '</div></div>';
     h += '<div class="grid cols-2">' +
@@ -380,7 +382,6 @@
     h += '</div></div></div>';
     view.innerHTML = h;
     bindStudentSearch();
-    byId('btn-print').addEventListener('click', function () { window.print(); });
     tex(view);
 
     chart('s-unit-radar', radarOpt(UNITS, [{ name: p.name, value: p.units.map(function (u) { return u.mastery; }) }, { name: '班级均值', value: p.units.map(function (u) { return u.class_mean; }), dashed: true, color: '#898781' }]));
@@ -708,6 +709,157 @@
       byId('pr-goal').addEventListener('change', function () { st.goal = Math.max(1, parseInt(this.value, 10) || 5); saveState(sid, st); renderMonitor(); });
     }
     render();
+  };
+
+  /* ---------- 7. 学生阶段报告（打印用，一人一页 A4） ---------- */
+  var COMP_DESC = { '数学抽象': '从具体问题中提炼概念和规律', '逻辑推理': '有条理地推导和证明', '数学建模': '把实际问题转化成数学问题来解决', '直观想象': '借助图形理解和分析问题', '数学运算': '准确、熟练地完成计算', '数据分析': '从数据中提取信息、作出判断' };
+  var ERR_DESC = { '计算失误': '思路对但算错', '思路缺失': '想不到解题方法', '审题错误': '条件看错或漏看', '知识遗忘': '公式、概念记不清', '表述不完整': '步骤不全，丢过程分' };
+  var ADV_LBL = { '错因': '错题订正', '心态': '考试策略' };
+  function examShort(t) { return String(t || '').replace(/（[^）]*）/g, '').replace(/\([^)]*\)/g, '').trim(); }
+  function cnDate(d) { var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d || ''); return m ? m[1] + ' 年 ' + (+m[2]) + ' 月 ' + (+m[3]) + ' 日' : esc(d || ''); }
+  /* 班内位置：pc = 班里掌握度低于本人的同学比例 */
+  function classPos(pc) {
+    var n = C.students.length, rank = Math.min(n, Math.max(1, n - Math.round(pc * n)));
+    var top = rank / n, bottom = (n - rank + 1) / n;
+    if (top <= 0.4) return { t: '班里前 ' + Math.max(10, Math.ceil(top * 10 - 1e-9) * 10) + '%', c: 'good' };
+    if (bottom <= 0.4) return { t: '班里后 ' + Math.max(10, Math.ceil(bottom * 10 - 1e-9) * 10) + '%', c: 'bad' };
+    return { t: '班里中等', c: 'mid' };
+  }
+  function vsClass(m, cm) { var d = m - cm; return d >= 0.03 ? '高于班级平均（' + pct(cm) + '）' : d <= -0.03 ? '低于班级平均（' + pct(cm) + '）' : '与班级平均（' + pct(cm) + '）相当'; }
+  function noModelSym(s) { return String(s || '').replace(/[θδσγβμ]/g, ''); }
+  /* 强 / 弱板块：取档案里的 strong / weak（与建议、推荐练习一致），不足 3 个时按相对偏移补齐 */
+  function pickUnits(p) {
+    var by = {}; p.units.forEach(function (u) { by[u.unit] = u; });
+    var strong = p.strong.filter(function (u) { return by[u]; }), weak = p.weak.filter(function (u) { return by[u]; });
+    var rest = p.units.filter(function (u) { return strong.indexOf(u.unit) < 0 && weak.indexOf(u.unit) < 0; });
+    rest.slice().sort(function (a, b) { return b.delta - a.delta; }).forEach(function (u) { if (strong.length < 3 && u.delta > 0) strong.push(u.unit); });
+    rest.slice().sort(function (a, b) { return a.delta - b.delta; }).forEach(function (u) { if (weak.length < 3 && strong.indexOf(u.unit) < 0 && u.delta < 0) weak.push(u.unit); });
+    return { strong: strong.map(function (u) { return by[u]; }), weak: weak.map(function (u) { return by[u]; }) };
+  }
+  function practiceItems(p) {
+    var out = []; p.practice.groups.forEach(function (g) { g.items.forEach(function (it) { var q = QMAP.get(it.qid); if (q) out.push({ unit: g.unit, qid: it.qid, role: it.role, q: q }); }); });
+    return out;
+  }
+  function reportHtml(sid, k) {
+    var p = C.profiles[sid];
+    var tr = p.trend.filter(function (t) { return t.total != null; });
+    var last = tr[tr.length - 1], prev = tr[tr.length - 2];
+    var lastExam = C.exams.filter(function (e) { return e.id === (last && last.exam); })[0] || C.exams[C.exams.length - 1];
+    var first = examShort(C.exams[0].title), lastT = examShort(C.exams[C.exams.length - 1].title);
+    var pre = '高三'; if (first.indexOf(pre) === 0 && lastT.indexOf(pre) === 0) lastT = lastT.slice(pre.length);
+    var cover = C.exams.length > 1 ? first + '—' + lastT + '，共 ' + C.exams.length + ' 次' : first + '，共 1 次';
+    var n = C.students.length;
+    var h = '<div class="rp-paper" data-sid="' + sid + '">';
+    // 抬头
+    h += '<div class="rp-head"><div><div class="rp-brand">数鉴 · 学生阶段学情报告</div><div class="rp-class">' + esc(C.meta['class']) + '</div></div>' +
+      '<div class="rp-who"><div class="rp-name">' + esc(p.name) + '<span>学号 ' + esc(sid) + '</span></div>' +
+      '<div class="rp-meta">报告日期 ' + cnDate(lastExam.date) + ' · 覆盖考试 ' + esc(cover) + '</div></div></div>';
+    // 成绩概况
+    var chg = '', rchg = '';
+    if (last && prev) {
+      var d = Math.round((last.total - prev.total) * 10) / 10, r = prev.rank - last.rank;
+      chg = d > 0 ? '比上次多 <b class="up">' + d + '</b> 分' : d < 0 ? '比上次少 <b class="down">' + (-d) + '</b> 分' : '与上次持平';
+      rchg = r > 0 ? '名次上升 <b class="up">' + r + '</b> 名' : r < 0 ? '名次下降 <b class="down">' + (-r) + '</b> 名' : '名次不变';
+    }
+    h += '<div class="rp-sec"><div class="rp-h">一、成绩概况</div><div class="rp-score">' +
+      '<div class="rp-kpi"><div class="rp-kpi-l">最近一次：' + esc(examShort(last.title)) + '</div><div class="rp-kpi-v">' + last.total + '<small> / ' + last.full + ' 分</small></div>' +
+      '<div class="rp-kpi-r">班级第 <b>' + last.rank + '</b> 名（共 ' + n + ' 人）</div>' +
+      (prev ? '<div class="rp-kpi-c">' + chg + '，' + rchg + '</div>' : '') +
+      '<div class="rp-kpi-c muted">本次班级平均 ' + fix(last.class_mean) + ' 分</div></div>' +
+      '<div class="rp-chart-trend" id="rp-trend-' + k + '"></div></div></div>';
+    // 知识板块
+    var pk = pickUnits(p);
+    function urow(u) { var ps = classPos(u.percentile); return '<tr><td class="u">' + esc(u.unit) + '</td><td class="m">' + pct(u.mastery) + '</td><td class="cm">班均 ' + pct(u.class_mean) + '</td><td><span class="rp-pos ' + ps.c + '">' + ps.t + '</span></td></tr>'; }
+    h += '<div class="rp-sec"><div class="rp-h">二、知识板块<span class="rp-note">掌握度：做该板块典型高考题的预计得分率</span><span class="rp-legend"><span class="sw b"></span>本人掌握度<span class="sw d"></span>班级平均<span class="lg good">绿字</span>擅长<span class="lg bad">红字</span>需加强</span></div><div class="rp-units">' +
+      '<div class="rp-ulist"><div class="rp-sub good">相对擅长的板块</div><table class="rp-ut">' + pk.strong.map(urow).join('') + '</table>' +
+      '<div class="rp-sub bad">最需加强的板块</div><table class="rp-ut">' + pk.weak.map(urow).join('') + '</table>' +
+      '<div class="rp-tip">「擅长 / 需加强」是和' + esc(p.name) + '自己的整体水平相比得出的：有的板块分数不低，但比自身应有水平差一些，同样值得补。</div></div>' +
+      '<div class="rp-uchart"><div class="rp-chart-units" id="rp-units-' + k + '" style="height:' + (p.units.length * 16 + 8) + 'px"></div></div></div></div>';
+    // 能力特点 + 失分原因
+    var cs = p.competencies.slice().sort(function (a, b) { return b.delta - a.delta; });
+    var cTop = cs[0], cLow = cs[cs.length - 1];
+    var errs = Object.keys(p.errors || {}).map(function (e) { return { e: e, n: p.errors[e] }; }).sort(function (a, b) { return b.n - a.n; });
+    var eTot = sum(errs.map(function (x) { return x.n; })), eMax = errs.length ? errs[0].n : 1;
+    var errConc = errs.length ? '最主要的失分原因是「' + esc(errs[0].e) + '」（' + esc(ERR_DESC[errs[0].e] || '') + '），共 ' + errs[0].n + ' 次，占 ' + pct(errs[0].n / eTot) + (errs[1] ? '；其次是「' + esc(errs[1].e) + '」（' + errs[1].n + ' 次）' : '') + '。' : '近几次考试暂无错因记录。';
+    h += '<div class="rp-two"><div class="rp-sec"><div class="rp-h">三、能力特点</div>' +
+      '<div class="rp-comp"><span class="rp-tag good">相对突出</span><b>' + esc(cTop.competency) + '</b>：' + esc(COMP_DESC[cTop.competency] || '') + '。这是' + esc(p.name) + '六项数学能力中表现最好的一项，掌握度 ' + pct(cTop.mastery) + '，' + vsClass(cTop.mastery, cTop.class_mean) + '。</div>' +
+      '<div class="rp-comp"><span class="rp-tag bad">相对薄弱</span><b>' + esc(cLow.competency) + '</b>：' + esc(COMP_DESC[cLow.competency] || '') + '。这是六项中最需要加强的一项，掌握度 ' + pct(cLow.mastery) + '，' + vsClass(cLow.mastery, cLow.class_mean) + '。</div>' +
+      '</div><div class="rp-sec"><div class="rp-h">四、主要失分原因<span class="rp-note">近 ' + C.exams.length + ' 次考试教师标注</span></div>' +
+      (errs.length ? '<div class="rp-errs">' + errs.map(function (x) { return '<div class="rp-err"><span class="en">' + esc(x.e) + '</span><span class="eb"><span style="width:' + Math.round(x.n / eMax * 100) + '%"></span></span><span class="ec">' + x.n + ' 次</span></div>'; }).join('') + '</div>' : '') +
+      '<div class="rp-concl">' + errConc + '</div></div></div>';
+    // 老师评语
+    var cms = p.comments.slice().sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; }).slice(0, 2);
+    h += '<div class="rp-sec"><div class="rp-h">五、老师评语</div>' + (cms.length ? cms.map(function (c) { return '<div class="rp-cmt"><span class="d">' + esc(c.date) + '</span>' + esc(c.text) + '</div>'; }).join('') : '<div class="muted">暂无评语</div>') + '</div>';
+    // 下阶段建议
+    h += '<div class="rp-sec"><div class="rp-h">六、下阶段建议</div><ol class="rp-adv">' + p.advice.map(function (a) {
+      var m = /^【([^】]*)】\s*/.exec(a), lbl = m ? noModelSym(m[1]).trim() : '', body = noModelSym(m ? a.slice(m[0].length) : a);
+      lbl = ADV_LBL[lbl] || lbl;
+      return '<li>' + (lbl ? '<b>' + esc(lbl) + '：</b>' : '') + esc(body) + '</li>';
+    }).join('') + '</ol></div>';
+    // 推荐练习
+    var items = practiceItems(p);
+    h += '<div class="rp-sec"><div class="rp-h">七、推荐练习（' + items.length + ' 题）<span class="rp-note">可在网页“学生练习”中在线完成</span></div><div class="rp-prac">' +
+      p.practice.groups.map(function (g) {
+        var its = items.filter(function (x) { return x.unit === g.unit; }); if (!its.length) return '';
+        return '<div class="rp-prow"><span class="pu">' + esc(g.unit) + '</span><span class="pi">' + its.map(function (x) { return '<span class="rp-q"><span class="id">' + esc(x.qid) + '</span>' + esc(x.q.type) + (x.role === '挑战' ? '·<em>挑战</em>' : '') + '</span>'; }).join('') + '</span></div>';
+      }).join('') + '</div>';
+    var st = loadState(sid), recs = items.map(function (x) { return st.records[x.qid]; }).filter(Boolean);
+    if (recs.length) {
+      var right = recs.filter(function (r) { return r.result === 'right'; }).length, part = recs.filter(function (r) { return r.result === 'partial'; }).length;
+      h += '<div class="rp-done">练习完成情况：完成 ' + recs.length + ' 题（共 ' + items.length + ' 题），正确率 ' + pct((right + part * 0.5) / recs.length) + '（全对 ' + right + ' 题' + (part ? '，部分正确 ' + part + ' 题' : '') + '）</div>';
+    }
+    h += '</div>';
+    h += '<div class="rp-foot">本报告由数鉴根据考试逐题得分与教师评价生成，供教师参考。示例数据为虚构。</div></div>';
+    return h;
+  }
+  function reportCharts(sid, k) {
+    var p = C.profiles[sid], tr = p.trend, n = C.students.length;
+    var R = { renderer: 'svg' };
+    var xs = tr.map(function (t) { return examShort(t.title).replace('高三', ''); });
+    chart('rp-trend-' + k, {
+      legend: { top: 0, right: 0, icon: 'circle', itemWidth: 8, itemHeight: 8, textStyle: { fontSize: 10 } },
+      grid: [{ left: 34, right: 14, top: 22, height: 62 }, { left: 34, right: 14, top: 104, height: 22 }],
+      xAxis: [{ gridIndex: 0, type: 'category', data: xs, boundaryGap: true, axisLabel: { show: false } },
+        { gridIndex: 1, type: 'category', data: xs, boundaryGap: true, position: 'bottom', axisLabel: { fontSize: 10, margin: 6 }, axisLine: { show: false } }],
+      yAxis: [{ gridIndex: 0, type: 'value', min: 0, max: tr[0].full, interval: tr[0].full / 2, axisLabel: { fontSize: 9 } },
+        { gridIndex: 1, type: 'value', inverse: true, min: 1, max: n, interval: n - 1, splitLine: { show: false }, axisLabel: { fontSize: 9, formatter: '第{value}' } }],
+      series: [
+        { name: '本人得分', type: 'line', xAxisIndex: 0, yAxisIndex: 0, data: tr.map(function (t) { return t.total; }), symbolSize: 6, lineStyle: { width: 2 }, label: { show: true, position: 'top', fontSize: 10, color: '#1c5cab', formatter: '{c} 分' } },
+        { name: '班级平均分', type: 'line', xAxisIndex: 0, yAxisIndex: 0, data: tr.map(function (t) { return t.class_mean; }), symbol: 'none', lineStyle: { width: 1.5, type: 'dashed', color: '#898781' }, itemStyle: { color: '#898781' } },
+        { name: '班级名次', type: 'line', xAxisIndex: 1, yAxisIndex: 1, data: tr.map(function (t) { return t.rank; }), symbol: 'diamond', symbolSize: 7, lineStyle: { width: 1.5, color: '#eb6834' }, itemStyle: { color: '#eb6834' }, label: { show: true, position: 'top', distance: 3, fontSize: 10, color: '#a2431c', formatter: '第{c}名' } }
+      ]
+    }, R);
+    var pk = pickUnits(p), sN = pk.strong.map(function (u) { return u.unit; }), wN = pk.weak.map(function (u) { return u.unit; });
+    var us = p.units.slice().sort(function (a, b) { return b.mastery - a.mastery; });
+    chart('rp-units-' + k, {
+      grid: { left: 4, right: 4, top: 2, bottom: 2, containLabel: true },
+      xAxis: { type: 'value', min: 0, max: 1, show: false },
+      yAxis: [{ type: 'category', inverse: true, data: us.map(function (u) { return u.unit; }), axisLine: { show: false },
+        axisLabel: { fontSize: 10, formatter: function (v) { return sN.indexOf(v) >= 0 ? '{g|' + v + '}' : wN.indexOf(v) >= 0 ? '{r|' + v + '}' : v; }, rich: { g: { color: '#006300', fontWeight: 600, fontSize: 10 }, r: { color: '#a32626', fontWeight: 600, fontSize: 10 } } } },
+        { type: 'category', inverse: true, position: 'right', data: us.map(function (u) { return pct(u.mastery); }), axisLine: { show: false }, axisLabel: { fontSize: 10, color: '#1d1d1b', margin: 6 } }],
+      series: [
+        { type: 'bar', data: us.map(function (u) { return u.mastery; }), barWidth: 8, itemStyle: { color: '#6da7ec', borderRadius: [0, 3, 3, 0] }, z: 2 },
+        { type: 'scatter', data: us.map(function (u) { return u.class_mean; }), symbol: 'diamond', symbolSize: 7, itemStyle: { color: '#0b0b0b' }, z: 3 }
+      ]
+    }, R);
+  }
+  PAGES.report = function (arg) {
+    var all = arg === 'ALL', ids = all ? C.students.map(function (s) { return s.id; }) : [arg];
+    var h = '<div class="rp-toolbar">';
+    if (all) {
+      h += '<a class="btn sm" href="#/overview">← 返回总览</a><span class="rp-tb-info">全班报告 · 共 ' + ids.length + ' 人，每人一页</span>';
+    } else {
+      var i = C.students.findIndex(function (s) { return s.id === arg; }), pv = C.students[i - 1], nx = C.students[i + 1];
+      h += '<a class="btn sm" href="#/student/' + arg + '">← 返回档案</a>' +
+        (pv ? '<a class="btn sm" href="#/report/' + pv.id + '">‹ 上一位：' + esc(pv.name) + '</a>' : '<button class="btn sm" disabled>‹ 上一位</button>') +
+        (nx ? '<a class="btn sm" href="#/report/' + nx.id + '">下一位：' + esc(nx.name) + ' ›</a>' : '<button class="btn sm" disabled>下一位 ›</button>') +
+        '<span class="rp-tb-info">第 ' + (i + 1) + ' / ' + C.students.length + ' 位</span>';
+    }
+    h += '<span class="spacer"></span>' + (all ? '' : '<a class="btn sm" href="#/report/ALL">打印全班报告</a>') + '<button class="btn primary sm" id="rp-print">打印 / 存为 PDF</button></div>';
+    h += '<div class="rp' + (all ? ' rp-all' : '') + '">' + ids.map(function (sid, k) { return reportHtml(sid, k); }).join('') + '</div>';
+    view.innerHTML = h;
+    ids.forEach(function (sid, k) { reportCharts(sid, k); });
+    byId('rp-print').addEventListener('click', function () { charts.forEach(function (c) { c.resize(); }); window.print(); });
   };
 
   /* ---------- 启动 ---------- */
