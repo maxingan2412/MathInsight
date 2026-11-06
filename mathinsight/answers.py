@@ -145,6 +145,7 @@ class _Parser:
 
     def term(self):
         v = self.factor()
+        divided = False
         while True:
             # 空白命令后不允许隐式乘法（如 "2\,3"）
             had_sp = self.peek() is not None and self.peek()[0] == "sp"
@@ -161,7 +162,10 @@ class _Parser:
                     if r == 0:
                         raise _Reject("除以零")
                     v /= r
+                    divided = True
             elif not had_sp and ((tok[0] == "cmd") or (tok[0] == "op" and tok[1] in "({")):
+                if divided:
+                    raise _Reject("除号后隐式乘法有歧义（如 2/3\\pi）")
                 if tok == ("cmd", "frac", tok[2]):
                     raise _Reject("数后紧跟分数（可能是带分数）")
                 v *= self.factor()  # 隐式乘法：2\sqrt3、24\pi、2(…)
