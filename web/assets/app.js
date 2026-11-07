@@ -357,7 +357,7 @@
     var p = C.profiles[sid];
     var h = '<div class="two-col">' + studentListHtml(sid, 'student') + '<div>';
     h += '<div class="card mb"><div class="page-head" style="margin-bottom:8px"><div class="profile-head"><div class="avatar">' + esc(p.name.slice(0, 1)) + '</div><div><div class="profile-name">' + esc(p.name) + ' <span class="muted small">' + sid + '</span></div><div class="profile-meta">' + esc(C.meta.class) + ' · 总体能力 θ = ' + fix(p.theta, 2) + '（班内第 ' + thetaRank(sid) + ' 名） · 最近 ' + esc(p.trend[p.trend.length - 1].title) + ' ' + p.trend[p.trend.length - 1].total + ' 分 / 第 ' + p.trend[p.trend.length - 1].rank + ' 名</div></div></div>' +
-      '<div class="page-actions"><a class="btn primary" href="#/practice/' + sid + '">去练习</a><a class="btn" href="#/report/' + sid + '">打印报告</a></div></div>' +
+      '<div class="page-actions"><a class="btn primary" href="#/practice/' + sid + '">去练习</a><button class="btn" id="s-ai">阶段复盘：复制给 AI</button><a class="btn" href="#/report/' + sid + '">打印报告</a></div></div><div id="s-ai-box"></div>' +
       '<div class="tag-row"><span class="lbl">强项</span>' + p.strong.map(function (u) { return '<span class="chip good">' + esc(u) + '</span>'; }).join('') + '<span class="lbl" style="margin-left:14px">弱项</span>' + p.weak.map(function (u) { return '<span class="chip bad">' + esc(u) + '</span>'; }).join('') +
       '<span class="lbl" style="margin-left:14px">评语标签</span>' + p.tags.map(function (t) { return '<span class="chip ' + (t.sign === '+' ? 'good' : 'bad') + '">' + esc(t.category) + ' · ' + esc(t.tag) + '</span>'; }).join('') + '</div></div>';
     h += '<div class="grid cols-2">' +
@@ -383,6 +383,7 @@
     view.innerHTML = h;
     bindStudentSearch();
     tex(view);
+    byId('s-ai').addEventListener('click', function () { var st = loadState(sid); aiShowPack(byId('s-ai-box'), aiPackReview(p, st), function () { aiLog(sid, st, { qid: '', scene: 'review', ts: Date.now() }); }, '你的成绩走势、弱项、错因和练习记录'); });
 
     chart('s-unit-radar', radarOpt(UNITS, [{ name: p.name, value: p.units.map(function (u) { return u.mastery; }) }, { name: '班级均值', value: p.units.map(function (u) { return u.class_mean; }), dashed: true, color: '#898781' }]));
     chart('s-comp-radar', radarOpt(COMPS, [{ name: p.name, value: p.competencies.map(function (u) { return u.mastery; }), color: '#1baf7a' }, { name: '班级均值', value: p.competencies.map(function (u) { return u.class_mean; }), dashed: true, color: '#898781' }]));
@@ -591,6 +592,152 @@
   /* ---------- 6. 学生练习 ---------- */
   function loadState(sid) { try { return JSON.parse(localStorage.getItem('mi_practice_' + sid)) || { records: {}, goal: 5 }; } catch (e) { return { records: {}, goal: 5 }; } }
   function saveState(sid, st) { try { localStorage.setItem('mi_practice_' + sid, JSON.stringify(st)); } catch (e) { } }
+
+  /* ---------- AI 学伴：学情上下文包（复制到任意大模型应用） ----------
+     用题库原始 HTML 生成纯文本（保留 $…$ 公式），不含姓名、学号、班级名。
+     提交前的包不含答案和详解。 */
+  var FIG_NOTE = '【此处有图，见数鉴网页；可截图一起发给 AI】';
+  function htmlToText(html) {
+    var s = String(html || '').replace(/<span class="inf">[\s\S]*?<\/span>/gi, '');
+    s = s.replace(/<svg[\s\S]*?<\/svg>/gi, FIG_NOTE).replace(/<img[^>]*>/gi, FIG_NOTE).replace(/<figcaption[\s\S]*?<\/figcaption>/gi, '');
+    s = s.replace(/<\/(td|th)>/gi, ' | ').replace(/<\/tr>/gi, '\n').replace(/<br\s*\/?>/gi, '\n').replace(/<li[^>]*>/gi, '\n· ');
+    s = s.replace(/<\/(p|div|li|h\d|figure|table|ul|ol)>/gi, '\n').replace(/<[^>]+>/g, '');
+    s = s.replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+    s = s.replace(/(【此处有图[^】]*】\s*)+/g, FIG_NOTE + '\n');
+    return s.split('\n').map(function (l) { return l.replace(/[ \t]+$/g, '').replace(/^\s*\|\s*/, '').replace(/\s*\|$/, ''); }).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  }
+  function cut(s, n) { return s.length > n ? s.slice(0, n).replace(/\s+\S*$/, '') + '……（已截断，完整内容见数鉴网页）' : s; }
+  function diffWord(d) { d = +d; return d < 0.4 ? '易' : d < 0.65 ? '中' : '难'; }
+  function siteBase() { return location.href.split('#')[0]; }
+  function paperTitle(q) { var pp = B.papers.filter(function (x) { return x.id === q.paper; })[0]; return pp ? pp.title.replace(/普通高等学校招生全国统一考试/, '高考') : q.paper; }
+  function aiWho(p, txt) { return String(txt || '').split(p.name).join('该生'); }
+  var AI_INTRO = '我是一名高三学生，在用「数鉴」系统做数学练习。下面是系统整理的我的学情和题目信息（班级为虚构示例数据），请你当我的数学老师，一对一辅导我。数学式子请用 LaTeX 写。';
+
+  function aiStudentText(p, unit) {
+    var L = [], n = C.students.length;
+    L.push('· 历次考试（满分 ' + p.trend[0].full + '，全班 ' + n + ' 人）：' + p.trend.map(function (t) { return examShort(t.title).replace('高三', '') + ' ' + t.total + ' 分、第 ' + t.rank + ' 名（班均 ' + fix(t.class_mean) + '）'; }).join('；'));
+    var um = {}; p.units.forEach(function (u) { um[u.unit] = u; });
+    var uTxt = function (u) { var x = um[u]; return x ? u + '（掌握度 ' + pct(x.mastery) + '，班级平均 ' + pct(x.class_mean) + '）' : u; };
+    L.push('· 薄弱板块：' + p.weak.map(uTxt).join('、'));
+    L.push('· 较强板块：' + p.strong.join('、'));
+    var cs = p.competencies.slice().sort(function (a, b) { return (a.mastery - a.class_mean) - (b.mastery - b.class_mean); }).slice(0, 2);
+    L.push('· 核心素养中相对最弱：' + cs.map(function (c) { return c.competency + '（' + pct(c.mastery) + '，班级平均 ' + pct(c.class_mean) + '）'; }).join('、'));
+    var es = Object.keys(p.errors).sort(function (a, b) { return p.errors[b] - p.errors[a]; });
+    if (es.length) L.push('· 考试中老师标注的错因：' + es.map(function (k) { return k + ' ' + p.errors[k] + ' 次'; }).join('、'));
+    if (p.comments.length) L.push('· 老师评语：' + p.comments.map(function (c) { return aiWho(p, c.text); }).join(''));
+    if (unit && um[unit] && p.weak.indexOf(unit) < 0) L.push('· 本题所在板块：' + uTxt(unit));
+    return L.join('\n');
+  }
+  function aiClassText() {
+    var ov = C.overview, last = C.exams[C.exams.length - 1], np = C.next_paper && C.next_paper.exam;
+    var L = ['· 已考完 ' + C.exams.map(function (e) { return examShort(e.title).replace('高三', ''); }).join('、') + '（最近一次 ' + last.date + '）' + (np ? '；下一轮练习卷为' + np.stage + '阶段（' + np.stage_note.replace(/^[^：]*：/, '') + '）' : '')];
+    L.push('· 全班薄弱板块：' + ov.weak_units.map(function (u) { var d = ov.units.filter(function (x) { return x.unit === u; })[0]; return u + '（全班得分率 ' + pct(d.rate) + '）'; }).join('、'));
+    return L.join('\n');
+  }
+  function aiQuestionText(q, it) {
+    var L = ['题目：' + paperTitle(q) + ' 第 ' + q.no + ' 题（' + q.type + '，' + q.score + ' 分，难度' + diffWord(q.difficulty) + '）'];
+    L.push('知识点：' + (q.sections || []).map(function (s) { return s.book + ' ' + s.sec + ' ' + s.name + (s.detail ? '（' + s.detail + '）' : ''); }).join('；') + '；板块：' + q.units.join('、'));
+    if (C.item_rate && C.item_rate[q.id] != null) L.push('全班这道题的得分率：' + pct(C.item_rate[q.id]));
+    L.push('题干：\n' + htmlToText(q.stem_html));
+    return L.join('\n');
+  }
+  function aiHintsText(it, q) {
+    var lv = (it && it.hints ? it.hints : []).slice();
+    (q.tiyan || []).forEach(function (t) { lv.push('题眼：' + htmlToText(t)); });
+    return lv.map(function (t, i) { return (i + 1) + '. ' + htmlToText(t); }).join('\n');
+  }
+  function aiRecordText(q, rec) {
+    var auto = rec.auto === 'num' || q.type === '单选' || q.type === '多选';
+    var txt = { right: '全对', partial: '部分正确', wrong: auto ? '错误' : '不会或做错' }[rec.result];
+    var mine = rec.answer || rec.text || '';
+    return '我的作答：' + (mine ? mine : '（没写）') + '\n数鉴判定：' + txt + (auto ? '（系统自动判分）' : '（我对照答案自评）') + '；用了 ' + (rec.hints || 0) + ' 级提示';
+  }
+  function aiSimilar(q, st, k) {
+    var u = q.units[0], secs = (q.sections || []).map(function (s) { return s.name; });
+    return B.questions.filter(function (x) { return x.id !== q.id && x.units.indexOf(u) >= 0 && !(st.records || {})[x.id] && !/<svg|<img/i.test(x.stem_html); })
+      .map(function (x) { var same = (x.sections || []).some(function (s) { return secs.indexOf(s.name) >= 0; }); return { q: x, c: Math.abs(x.difficulty - q.difficulty) - (same ? 0.3 : 0) + (x.type === q.type ? 0 : 0.1) }; })
+      .sort(function (a, b) { return a.c - b.c; }).slice(0, k).map(function (o) { return o.q; });
+  }
+  var AI_SCENES = {
+    stuck: { label: '卡住了，要提示', pre: true },
+    explain: { label: '讲解与一题多解' },
+    diagnose: { label: '帮我找错因', needWrong: true },
+    more: { label: '举一反三' }
+  };
+  function aiPackPractice(scene, p, it, q, rec, st, liveText) {
+    var S = [AI_INTRO, '', '【我的情况】', aiStudentText(p, it.unit), '', '【班级与阶段】', aiClassText(), '', '【这道题】', aiQuestionText(q, it)];
+    if (scene === 'stuck') {
+      if (liveText && liveText.trim()) S.push('', '我目前写到：' + liveText.trim());
+      S.push('', '【请你这样帮我】',
+        '1. 先问我想到了哪一步、卡在哪里，再给提示。',
+        '2. 提示一次只给一级：先指方向，再点出卡点，最后才帮我打通关键一步。不要给出最终答案或完整解答，我会回数鉴提交判分。',
+        '3. 结合我的弱项和常见错因提醒我（比如该检查哪里）。');
+      var hs = aiHintsText(it, q);
+      if (hs) S.push('', '【老师预先写好的提示阶梯（供你参考，我要提示时一次只给一级）】', hs);
+      return S.join('\n');
+    }
+    S.push('', aiRecordText(q, rec), '核对过的答案：' + htmlToText(q.answer_html));
+    if (q.solution_html) S.push('', '【数鉴的参考详解（已人工核对）】', cut(htmlToText(String(q.solution_html).replace(/<p class="note">说明：[\s\S]*?<\/p>/g, '')), 900));
+    S.push('', '【请你这样帮我】');
+    if (scene === 'explain') S.push(
+      '1. 用我能听懂的话讲清这题的关键一步（为什么想到这样做）。',
+      '2. 给出 2–3 种不同解法：考场常规解法、更本质的解法、可能的巧解；比较各自适用的情形，说明考场上选哪种。',
+      '3. 每种解法的最终结论必须和上面「核对过的答案」一致。如果某种解法算出来不一致，请明确标出，不要硬凑。',
+      '4. 结合我的弱项和常见错因，说说这类题以后要注意什么。',
+      '5. 最后出一道同类变式题让我做，先不要给答案。');
+    else if (scene === 'diagnose') S.push(
+      '1. 根据我的作答推测我可能错在哪一步；如果看不出来，先问我一两个问题。',
+      '2. 对照我的历史错因，判断这次是偶然失误还是老问题。',
+      '3. 给出针对性的订正方法（不超过 3 条），并以「核对过的答案」为准检查你的分析。');
+    else {
+      var sim = aiSimilar(q, st, 2);
+      S.push('1. 先用两三句话点出这题的方法要点。',
+        '2. 然后带我做下面的同类题，一次一道：等我给出答案和过程后再点评，不要提前说答案。',
+        '3. 你拿不准对错时，让我到数鉴题库核对（链接在每题后面）。');
+      sim.forEach(function (x, i) { S.push('', '【同类题 ' + (i + 1) + '】' + paperTitle(x) + ' 第 ' + x.no + ' 题（' + x.type + '，难度' + diffWord(x.difficulty) + '）', htmlToText(x.stem_html), '核对：' + siteBase() + '#/bank?kw=' + encodeURIComponent(x.id)); });
+    }
+    return S.join('\n');
+  }
+  function aiPackReview(p, st) {
+    var S = [AI_INTRO, '', '【我的情况】', aiStudentText(p), '', '【班级与阶段】', aiClassText()];
+    var all = [], recs = st.records || {};
+    p.practice.groups.forEach(function (g) { g.items.forEach(function (i) { if (QMAP.get(i.qid)) all.push({ g: g, i: i, q: QMAP.get(i.qid), r: recs[i.qid] }); }); });
+    var done = all.filter(function (x) { return x.r; });
+    S.push('', '【我在数鉴的练习记录】');
+    if (done.length) {
+      var right = done.filter(function (x) { return x.r.result === 'right'; }).length, nohint = done.filter(function (x) { return !x.r.hints && !x.r.ai; }).length;
+      S.push('· 推荐练习 ' + all.length + ' 题，已做 ' + done.length + ' 题，全对 ' + right + ' 题；不看提示、不借助 AI 独立完成 ' + nohint + ' 题');
+      p.practice.groups.forEach(function (g) { var d = done.filter(function (x) { return x.g === g; }); if (d.length) S.push('· ' + g.unit + '：做了 ' + d.length + ' 题，' + d.map(function (x) { return x.q.id + ' ' + { right: '对', partial: '半对', wrong: '错' }[x.r.result]; }).join('、')); });
+    } else S.push('· 还没开始做推荐练习');
+    S.push('', '【数鉴推荐给我的练习题（题号 · 板块 · 类型 · 难度）】');
+    all.forEach(function (x) { S.push('· ' + x.q.id + ' · ' + x.g.unit + ' · ' + x.i.role + ' · ' + diffWord(x.q.difficulty) + (x.r ? ' · 已做' : '')); });
+    S.push('', '【请你这样帮我做阶段复盘】',
+      '1. 先问我最近的感受：哪类题最没把握、时间够不够。',
+      '2. 分析我的成绩和名次走势，指出最该优先补的 1–2 个板块，说明理由（结合掌握度、错因和班级阶段）。',
+      '3. 排一份下周练习计划：每天练什么板块、几道题、什么难度，以及每个板块要特别注意的问题。',
+      '4. 优先从上面「推荐练习题」里选题（写题号），我会在数鉴里做并自动判分：' + siteBase() + '#/practice',
+      '5. 每天留 1–2 道题不用提示、不问 AI，独立完成。');
+    return S.join('\n');
+  }
+  function copyText(text, ok) {
+    function fallback() { var t = document.createElement('textarea'); t.value = text; t.style.position = 'fixed'; t.style.opacity = '0'; document.body.appendChild(t); t.select(); var r = false; try { r = document.execCommand('copy'); } catch (e) { } document.body.removeChild(t); ok(r); }
+    if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(function () { ok(true); }, fallback); else fallback();
+  }
+  function aiLog(sid, st, entry) { st.ai = st.ai || []; st.ai.push(entry); if (st.ai.length > 300) st.ai = st.ai.slice(-300); saveState(sid, st); }
+  /* 在 box 里显示包的预览 + 复制按钮 */
+  function aiShowPack(box, text, onCopy, what) {
+    box.innerHTML = '<div class="ai-pack"><div class="ai-pack-head"><span>下面这段文字包含' + (what || '你的学情和这道题的信息') + '（不含姓名和学号），共 ' + text.length + ' 字。复制后粘到 DeepSeek、豆包、Kimi 等应用里，就能接着问。</span><span class="spacer"></span><button class="btn primary sm" data-ai="copy">复制</button><button class="btn sm" data-ai="close">收起</button></div><textarea class="ai-pack-text" readonly></textarea><div class="ai-pack-msg small muted"></div></div>';
+    var ta = box.querySelector('textarea'); ta.value = text;
+    box.querySelector('[data-ai="copy"]').addEventListener('click', function () {
+      copyText(text, function (r) {
+        var m = box.querySelector('.ai-pack-msg');
+        if (r) { m.textContent = '已复制。粘到大模型应用里发送即可；做完记得回数鉴提交。'; m.className = 'ai-pack-msg small ok'; if (onCopy) onCopy(); }
+        else { ta.focus(); ta.select(); m.textContent = '浏览器不允许自动复制，已全选文字，请按 Ctrl+C 复制。'; m.className = 'ai-pack-msg small warn'; if (onCopy) onCopy(); }
+      });
+    });
+    box.querySelector('[data-ai="close"]').addEventListener('click', function () { box.innerHTML = ''; });
+  }
+
   PAGES.practice = function (sid, query) {
     setLastStudent(sid);
     var p = C.profiles[sid], st = loadState(sid);
@@ -642,10 +789,12 @@
         h2 += '<button class="btn primary" id="pr-submit">提交</button>';
       }
       h2 += '</div>';
+      if (!done) h2 += '<div class="ai-row"><span class="muted small">想问大模型？</span><button class="btn sm" data-scene="stuck">卡住了：复制题目和学情给 AI（不含答案）</button></div><div id="pr-ai"></div>';
       if (done) {
         if (rec) {
           var txt = { right: '全对', partial: '部分正确', wrong: '不会 / 错误' }[rec.result];
-          h2 += '<div class="result-box ' + rec.result + '">结果：<b>' + txt + '</b>' + (choice ? '（你的选择 ' + (rec.answer || '—') + '，正确答案 ' + answerLetters(q) + '）' : rec.auto === 'num' ? '（你的答案 ' + esc(rec.answer || '—') + '，正确答案 ' + keyAnswerHtml(q) + (rec.marks && rec.marks.length > 1 ? '；' + rec.marks.map(function (ok, i) { return '第 ' + (i + 1) + ' 空' + (ok ? '对' : '错'); }).join('，') : '') + '）' : '') + ' · 用了 ' + (rec.hints || 0) + ' 级提示 · ' + dateStr(rec.ts) + '</div>';
+          h2 += '<div class="result-box ' + rec.result + '">结果：<b>' + txt + '</b>' + (choice ? '（你的选择 ' + (rec.answer || '—') + '，正确答案 ' + answerLetters(q) + '）' : rec.auto === 'num' ? '（你的答案 ' + esc(rec.answer || '—') + '，正确答案 ' + keyAnswerHtml(q) + (rec.marks && rec.marks.length > 1 ? '；' + rec.marks.map(function (ok, i) { return '第 ' + (i + 1) + ' 空' + (ok ? '对' : '错'); }).join('，') : '') + '）' : '') + ' · 用了 ' + (rec.hints || 0) + ' 级提示' + (rec.ai ? ' · 问过 AI 学伴' : '') + ' · ' + dateStr(rec.ts) + '</div>';
+          h2 += '<div class="ai-row"><span class="muted small">带上下文问 AI：</span>' + Object.keys(AI_SCENES).filter(function (k) { var sc = AI_SCENES[k]; return !sc.pre && !(sc.needWrong && rec.result === 'right'); }).map(function (k) { return '<button class="btn sm" data-scene="' + k + '">' + AI_SCENES[k].label + '</button>'; }).join('') + '</div><div id="pr-ai"></div>';
         } else {
           h2 += '<div class="result-box pending">已提交，请对照参考答案自评：</div><div class="practice-actions"><button class="btn" data-grade="right">全对</button><button class="btn" data-grade="partial">部分</button><button class="btn" data-grade="wrong">不会</button></div>';
         }
@@ -658,6 +807,11 @@
         var L = b.dataset.opt;
         if (q.type === '单选') live.picked = [L]; else { var i = live.picked.indexOf(L); if (i >= 0) live.picked.splice(i, 1); else live.picked.push(L); live.picked.sort(); }
         renderQ();
+      }); });
+      box.querySelectorAll('button[data-scene]').forEach(function (b) { b.addEventListener('click', function () {
+        var scene = b.dataset.scene, text = aiPackPractice(scene, p, it, q, st.records[q.id], st, live.text);
+        box.querySelectorAll('button[data-scene]').forEach(function (x) { x.classList.toggle('primary', x === b); });
+        aiShowPack(byId('pr-ai'), text, function () { if (scene === 'stuck') live.ai = true; aiLog(sid, st, { qid: q.id, scene: scene, ts: Date.now() }); renderMonitor(); });
       }); });
       var hb = byId('pr-hint'); if (hb) hb.addEventListener('click', function () { live.hintLevel++; renderQ(); });
       var ta = byId('pr-text'); if (ta) ta.addEventListener('input', function () { live.text = ta.value; });
@@ -672,7 +826,7 @@
           if (got === ans) result = 'right';
           else if (q.type === '多选' && live.picked.every(function (L) { return ans.indexOf(L) >= 0; })) result = 'partial';
           else result = 'wrong';
-          st.records[q.id] = { result: result, answer: got, hints: live.hintLevel, ts: Date.now() }; st.lastTs = Date.now(); saveState(sid, st);
+          st.records[q.id] = { result: result, answer: got, hints: live.hintLevel, ai: !!live.ai, ts: Date.now() }; st.lastTs = Date.now(); saveState(sid, st);
         } else if (numq) {
           var g;
           try { g = gradeNum(q, live.text); } catch (e) {
@@ -680,12 +834,12 @@
             renderQ(); var ni2 = byId('pr-num'); if (ni2) ni2.focus(); return;
           }
           live.err = '';
-          st.records[q.id] = { result: g.result, answer: live.text.trim(), marks: g.marks, auto: 'num', hints: live.hintLevel, ts: Date.now() }; st.lastTs = Date.now(); saveState(sid, st);
+          st.records[q.id] = { result: g.result, answer: live.text.trim(), marks: g.marks, auto: 'num', hints: live.hintLevel, ai: !!live.ai, ts: Date.now() }; st.lastTs = Date.now(); saveState(sid, st);
         } else { live.submitted = true; }
         render();
       });
       box.querySelectorAll('button[data-grade]').forEach(function (b) { b.addEventListener('click', function () {
-        st.records[q.id] = { result: b.dataset.grade, text: live.text, hints: live.hintLevel, ts: Date.now() }; st.lastTs = Date.now(); saveState(sid, st); live.submitted = false; render();
+        st.records[q.id] = { result: b.dataset.grade, text: live.text, hints: live.hintLevel, ai: !!live.ai, ts: Date.now() }; st.lastTs = Date.now(); saveState(sid, st); live.submitted = false; render();
       }); });
       var sol = byId('pr-sol'); if (sol) sol.addEventListener('click', function () { var bx = byId('pr-sol-box'); var show = bx.style.display === 'none'; bx.style.display = show ? '' : 'none'; sol.textContent = show ? '收起详解' : '查看详解'; });
       byId('pr-prev').addEventListener('click', function () { if (idx > 0) { idx--; live = { picked: [], hintLevel: 0, submitted: false, text: '' }; render(); } });
@@ -700,6 +854,8 @@
       h3 += '<div class="row"><span>完成率</span><span class="big">' + pct(items.length ? doneN / items.length : 0) + '</span></div><div class="progress"><span style="width:' + (items.length ? doneN / items.length * 100 : 0) + '%"></span></div><div class="small muted">' + doneN + ' / ' + items.length + ' 题</div>';
       h3 += '<div class="row mt"><span>正确率</span><span class="big">' + pct(acc) + '</span></div><div class="progress g"><span style="width:' + (acc * 100) + '%"></span></div><div class="small muted">全对 ' + right + ' · 部分 ' + partial + '（计 0.5）· 错 ' + (doneN - right - partial) + '</div>';
       h3 += '<div class="row mt"><span>今日目标</span><span class="big">' + today + ' / ' + goal + '</span></div><div class="progress"><span style="width:' + Math.min(100, today / goal * 100) + '%;background:' + (today >= goal ? '#0ca30c' : '#eda100') + '"></span></div><div class="goal-row small"><span class="muted">每日目标</span><input class="input" type="number" min="1" max="50" id="pr-goal" value="' + goal + '"> 题' + (today >= goal ? '<span class="chip good">已达成</span>' : '') + '</div>';
+      var aiN = (st.ai || []).length, indep = recs.filter(function (r) { return !r.hints && !r.ai; }).length;
+      h3 += '<div class="row mt"><span>独立完成</span><span>' + indep + ' / ' + doneN + ' 题</span></div><div class="small muted">不看提示、不问 AI 做完的题' + (aiN ? ' · 复制给 AI ' + aiN + ' 次' : '') + '</div>';
       h3 += '<div class="row mt"><span>最近练习</span><span>' + (st.lastTs ? dateStr(st.lastTs) : '尚未开始') + '</span></div>';
       h3 += '<div class="mt"><div class="small" style="font-weight:600;margin-bottom:4px">各板块进度</div>' + p.practice.groups.map(function (g) {
         var tot = g.items.filter(function (i) { return QMAP.get(i.qid); }).length, d = g.items.filter(function (i) { return st.records[i.qid]; }).length, r = g.items.filter(function (i) { return st.records[i.qid] && st.records[i.qid].result === 'right'; }).length;
