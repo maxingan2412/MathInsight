@@ -112,6 +112,14 @@ def _drop_rest_of_line(el):
         cur.extract()
 
 
+_SITE_LINK = re.compile(r'<a\b[^>]*\bhref="(?!https?://|#|mailto:)[^"]*"[^>]*>(.*?)</a>', re.S)
+
+
+def unlink_local(html: str) -> str:
+    """来源讲义里指向别处页面的相对链接, 在本题库里打不开: 去掉链接, 保留文字。"""
+    return _SITE_LINK.sub(r"\1", html) if html and "<a" in html else html
+
+
 def clean_editorial(html: str) -> str:
     """去掉题干/详解里的编者附注, 保留「易错」「注意」等教学提示。"""
     if not html or not EDITORIAL.search(html) and not CAPTION.search(html):
@@ -296,6 +304,10 @@ def main():
             if q["id"] in fix:
                 q.update(fix[q["id"]])
                 q["has_figure"] = "<svg" in q["stem_html"] or "<img" in q["stem_html"]
+    for q in allq:
+        for k in ("stem_html", "answer_html", "solution_html"):
+            if q.get(k):
+                q[k] = unlink_local(q[k])
     # 填空题数值答案（供网页自动判分）；拿不准的不写
     n_fill = n_num = 0
     for q in allq:

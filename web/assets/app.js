@@ -7,7 +7,6 @@
   /* ---------- 基础 ---------- */
   var PAL = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#6250d6', '#e34948'];
   var SEQ = ['#cde2fb', '#9ec5f4', '#6da7ec', '#3987e5', '#256abf', '#1c5cab', '#0d366b'];
-  var DIV = ['#1c5cab', '#86b6ef', '#f0efec', '#f0a3a2', '#d03b3b'];
   var FONT = 'system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif';
   var UNITS = C.meta.units, COMPS = C.meta.competencies;
   var QMAP = new Map(B.questions.map(function (q) { return [q.id, q]; }));

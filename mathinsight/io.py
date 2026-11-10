@@ -13,8 +13,6 @@ from pathlib import Path
 
 from .model import Responses
 
-ERROR_TYPES = ["计算失误", "审题错误", "思路缺失", "表述不完整", "知识遗忘"]
-
 
 def load_class(d: Path, bank) -> dict:
     d = Path(d)

@@ -43,7 +43,8 @@ def main(n_students: int = 42, seed: int = 2026):
     names = set()
     while len(names) < n_students:
         names.add(rng.choice(SURNAMES) + "".join(rng.sample(GIVEN, rng.choice([1, 2]))))
-    names = sorted(names, key=lambda _: rng.random())
+    names = sorted(names)
+    rng.shuffle(names)
     students = [{"id": f"S{k + 1:02d}", "name": nm, "class": "高三（3）班（虚构示例）"} for k, nm in enumerate(names)]
 
     units = list(UNITS)

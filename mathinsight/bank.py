@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import math
 from pathlib import Path
 
 BANK = Path(__file__).resolve().parents[1] / "bank"
@@ -69,7 +68,3 @@ class QuestionBank:
             "by_unit": dict(Counter(q["units"][0] for q in self.questions)),
             "years": sorted({q["year"] for q in self.questions}),
         }
-
-
-def sigmoid(x: float) -> float:
-    return 1.0 / (1.0 + math.exp(-x))

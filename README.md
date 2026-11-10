@@ -30,7 +30,7 @@
 ### 📚 高考真题库
 * 上海卷 2020–2026、新课标全国卷 2024–2026 及多地模拟卷，**逐题配有详解**
 * 每题标注**教材小节、板块、课标主题、六大核心素养权重**
-* 每题提炼「**题眼**」：卡点在哪、哪一步打通
+* 中档以上的题提炼「**题眼**」：卡点在哪、哪一步打通
 * 导入程序可持续扩充各省市题库
 
 </td>
@@ -142,9 +142,9 @@ flowchart LR
 ```bash
 git clone https://github.com/maxingan2412/MathInsight.git
 cd MathInsight
-pip install numpy            # 核心分析只依赖 numpy
+pip install numpy            # 核心分析只依赖 numpy；在仓库目录里用 python -m 运行，不必安装本项目
 
-# 1. 生成虚构示例班级（42 人、4 次考试）
+# 1. （可跳过，仓库已带示例）重新生成虚构示例班级（42 人、4 次考试）
 python scripts/make_demo.py
 
 # 2. 运行完整分析，导出网页数据
