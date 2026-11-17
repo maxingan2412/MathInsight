@@ -6,15 +6,17 @@
 
 输出:
     bank/papers.json        试卷元数据(地区、年份、类型、题量、满分)
-    (另外合并 bank/source/*.json 中按统一格式整理的试卷)
-    bank/questions.jsonl    每行一道题(题干、答案、详解、知识点、题眼、难度先验、素养标签)
+    (另外合并知识库 数据/整卷/*.json 与 bank/source/*.json 中按统一格式整理的试卷)
+    bank/questions.jsonl    每行一道题(题干、答案、详解、知识点、题眼、提炼、难度先验、素养标签)
 
 知识库目录约定(与作者整理的详解库一致):
     真题详解/上海/上海高考数学YYYY_题目与详解.html
     真题详解/全国/全国一卷数学YYYY_题目与详解.html ...
     模拟题详解/<省>/<名称>_题目与详解.html
-    数据/sections_map.json, 数据/全国卷知识点/*.sections.json, 数据/题库来源/*.json, 数据/题眼/*.json
-新增试卷时, 在 PAPERS 里加一行即可。
+    数据/sections_map.json, 数据/全国卷知识点/*.sections.json, 数据/题库来源/*.json, 数据/题眼/*.json,
+    数据/提炼/*.json(逐题提炼: 考了什么、卡点、易错、本质、改编、考点与能力、归因; 没有的卷或题不加 refine 字段)
+    数据/整卷/<试卷号>.json(统一格式的整卷: 试卷信息与逐题题干、答案、详解、知识点, 见 load_source)
+新增 HTML 详解卷时, 在 PAPERS 里加一行; 统一格式的整卷放进 数据/整卷/ 即可。
 """
 from __future__ import annotations
 
@@ -71,6 +73,11 @@ def load_kp(root: Path, kind: str, key: str) -> dict[str, list[dict]]:
 
 def load_tiyan(root: Path, pid: str) -> dict:
     p = root / "数据" / "题眼" / f"{pid}.json"
+    return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+
+
+def load_refine(root: Path, pid: str) -> dict:
+    p = root / "数据" / "提炼" / f"{pid}.json"
     return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
 
 
@@ -238,7 +245,13 @@ def parse_paper(root: Path, tax: Taxonomy, meta) -> tuple[dict, list[dict]]:
 
 
 def load_source(path: Path, tax: Taxonomy) -> tuple[dict, list[dict]]:
-    """读取单套试卷的结构化 JSON(bank/source/<试卷号>.json), 补难度先验与标注。"""
+    """读取单套试卷的统一格式 JSON(数据/整卷/ 或 bank/source/ 下的 <试卷号>.json), 补难度先验与标注。
+
+    {"paper": {id, title, region, year, kind, template?},
+     "questions": [{no, type, score, stem_html, answer_html, solution_html?, sections?, optional?, verified?,
+                    tiyan_tag?, tiyan?, difficulty?}]}
+    verified 缺省为 True; 为 False 的题不进入自动组卷和个性化推题。
+    """
     d = json.loads(path.read_text(encoding="utf-8"))
     meta = d["paper"]
     raw = sorted(d["questions"], key=lambda q: q["no"])
@@ -249,9 +262,10 @@ def load_source(path: Path, tax: Taxonomy) -> tuple[dict, list[dict]]:
         last_of_type = (i == n - 1) or types[i + 1] != r["type"]
         sections = []
         for s in r.get("sections", []):
+            name = s.get("name", "")
             s = {"book": s["book"], "sec": s.get("sec", ""), "detail": s.get("detail", "")}
             if s["book"] == "旧教材":
-                s["name"] = s["detail"]
+                s["name"] = name or s["detail"]
             sections.append(s)
         stem = clean_editorial(r["stem_html"])
         q = {
@@ -262,7 +276,7 @@ def load_source(path: Path, tax: Taxonomy) -> tuple[dict, list[dict]]:
             "solution_html": clean_editorial(r.get("solution_html", "")),
             "sections": sections, "tiyan_tag": r.get("tiyan_tag", ""), "tiyan": r.get("tiyan", []),
             "difficulty": r.get("difficulty") or difficulty_prior(i, n, r["type"], last_of_type),
-            "has_figure": "<svg" in stem or "<img" in stem, "verified": True,
+            "has_figure": "<svg" in stem or "<img" in stem, "verified": bool(r.get("verified", True)),
             "optional": bool(r.get("optional")), "note": "",
         }
         tax.annotate(q)
@@ -284,17 +298,19 @@ def main():
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     tax = Taxonomy.load()
-    papers, allq = [], []
+    papers, allq, loaded = [], [], []
     for meta in PAPERS:
         if not (root / meta[1]).exists():
             print(f"跳过（文件不存在）：{meta[1]}")
             continue
-        p, qs = parse_paper(root, tax, meta)
-        papers.append(p)
-        allq += qs
-        print(f"{p['id']:<16} {p['count']:>3} 题  满分 {p['full_score']}")
-    for path in sorted((out / "source").glob("*.json")):
-        p, qs = load_source(path, tax)
+        loaded.append(parse_paper(root, tax, meta))
+    for path in sorted((root / "数据" / "整卷").glob("*.json")) + sorted((out / "source").glob("*.json")):
+        loaded.append(load_source(path, tax))
+    for p, qs in loaded:
+        rf = load_refine(root, p["id"])
+        for q in qs:
+            if str(q["no"]) in rf:
+                q["refine"] = rf[str(q["no"])]
         papers.append(p)
         allq += qs
         print(f"{p['id']:<16} {p['count']:>3} 题  满分 {p['full_score']}")

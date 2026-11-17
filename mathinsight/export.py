@@ -64,8 +64,13 @@ def bank_payload(bank: QuestionBank) -> dict:
     keep = ["id", "paper", "no", "type", "score", "region", "year", "kind", "stem_html", "answer_html",
             "solution_html", "sections", "units", "theme", "competencies", "tiyan_tag", "tiyan", "difficulty",
             "verified", "optional", "note", "answer_num"]
-    return {"papers": list(bank.papers.values()), "stats": bank.stats(),
-            "questions": [{k: q.get(k) for k in keep} for q in bank.questions]}
+    qs = []
+    for q in bank.questions:
+        d = {k: q.get(k) for k in keep}
+        if q.get("refine"):          # 逐题提炼(考点、卡点、易错、本质、改编), 只有部分题有
+            d["refine"] = q["refine"]
+        qs.append(d)
+    return {"papers": list(bank.papers.values()), "stats": bank.stats(), "questions": qs}
 
 
 def write_web(data: dict, bank: QuestionBank, web: Path = WEB):

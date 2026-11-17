@@ -324,6 +324,32 @@
       document.querySelectorAll('#stu-list .item').forEach(function (a) { a.style.display = (!k || a.dataset.key.indexOf(k) >= 0) ? '' : 'none'; });
     });
   }
+  /* 题目提炼：考了什么、卡点、易错、本质、归因、考点与能力；改编方向单列 */
+  function kdLink(x) { return '<a class="kd" href="#/bank?kw=' + encodeURIComponent(x.name) + '" title="题库里查这个考点的题">' + esc(x.name) + '</a>' + (x.sec ? '<span class="kd-sec">' + esc(x.sec) + '</span>' : ''); }
+  function kdNames(q) {
+    var out = []; ((q.refine && q.refine.parts) || []).forEach(function (p) { [p.main].concat(p.aux || []).forEach(function (x) { if (x && x.name) out.push(x.name); }); });
+    return out;
+  }
+  function refineHtml(r) {
+    var dash = function (t) { return t && t !== '无' ? esc(t) : '—'; };
+    var h = '<div class="rf-h">考了什么</div>' + r.what + '<div class="rf-h">卡点</div>' + r.crux + '<div class="rf-h">易错</div>' + r.pitfalls + '<div class="rf-h">本质</div>' + r.essence;
+    var at = r.attributions || [], ess = at.filter(function (a) { return a.on === '本质'; }), rest = at.filter(function (a) { return a.on !== '本质'; });
+    ess.forEach(function (a) { h += '<p class="rf-link"><b>要建立的联系</b>（' + esc(a.sec) + ' ' + esc(a.knowledge) + '）：' + esc(a.note) + '</p>'; });
+    if (rest.length) {
+      h += '<div class="rf-h">归因：哪个知识的哪一点没掌握</div><ul class="rf-attr">' + rest.map(function (a) {
+        return '<li><span class="rf-on">' + esc(a.on) + '</span>' + (a.part && a.part !== '全题' ? '<span class="muted">' + esc(a.part) + '</span> ' : '') + '<b>' + esc(a.knowledge) + '</b><span class="kd-sec">' + esc(a.sec) + '</span>' + (a.type ? '<span class="chip orange">' + esc(a.type) + '</span>' : '') +
+          '<div>' + esc(a.note) + '</div>' + (a.fix ? '<div class="rf-fix">补救：' + esc(a.fix) + '</div>' : '') + '</li>';
+      }).join('') + '</ul>';
+    }
+    if (r.parts && r.parts.length) {
+      h += '<div class="rf-h">考点与能力</div><div class="table-wrap"><table class="rf-table"><tr><th>小问</th><th>主考点</th><th>辅考点</th><th>设问</th><th>能力</th><th>思想方法</th><th>关键转化</th></tr>' + r.parts.map(function (p) {
+        return '<tr><td>' + esc(p.part || '') + '</td><td>' + kdLink(p.main) + '</td><td>' + ((p.aux || []).map(kdLink).join('<br>') || '—') + '</td><td>' + dash(p.ask) + '</td><td>' + dash(p.ability_main) + (p.ability_sub ? '<span class="muted">、' + esc(p.ability_sub) + '</span>' : '') + '</td><td>' + dash(p.method) + '</td><td>' + dash(p.transform) + '</td></tr>';
+      }).join('') + '</table></div>';
+    }
+    var ex = [r.context ? '情境：' + esc(r.context) : '', r.part_relation ? '小问关系：' + esc(r.part_relation) : ''].filter(Boolean).join(' ｜ ');
+    if (ex) h += '<div class="small muted mt">' + ex + '</div>';
+    return h + '<div class="small muted mt">点考点名，在题库里查同一考点的题。</div>';
+  }
   function questionCard(q, extra, opts) {
     opts = opts || {};
     var h = '<div class="qcard" id="qc-' + esc(q.id) + '"><div class="qcard-head"><span class="qid">' + esc(q.id) + '</span>' + qBadges(q) + '<span>' + q.score + ' 分</span><span>难度 ' + fix(q.difficulty, 2) + '</span>' + (q.tiyan_tag ? '<span class="chip violet">题眼：' + esc(q.tiyan_tag) + '</span>' : '') + '<span class="spacer"></span>' + (extra || '') + '</div>' +
@@ -333,10 +359,14 @@
       h += '<div class="qtoggles">' +
         (q.tiyan && q.tiyan.length ? '<button class="btn sm" data-tg="tiyan" data-q="' + esc(q.id) + '">题眼</button>' : '') +
         '<button class="btn sm" data-tg="answer" data-q="' + esc(q.id) + '">答案</button>' +
-        (q.solution_html ? '<button class="btn sm" data-tg="solution" data-q="' + esc(q.id) + '">详解</button>' : '') + '</div>' +
+        (q.solution_html ? '<button class="btn sm" data-tg="solution" data-q="' + esc(q.id) + '">详解</button>' : '') +
+        (q.refine ? '<button class="btn sm" data-tg="refine" data-q="' + esc(q.id) + '">提炼</button>' : '') +
+        (q.refine && q.refine.variants ? '<button class="btn sm" data-tg="variants" data-q="' + esc(q.id) + '">改编</button>' : '') + '</div>' +
         '<div class="qsec qbody" data-sec="tiyan" style="display:none"><div class="qsec-title">题眼（卡点与打通）</div><ul class="tiyan-list">' + (q.tiyan || []).map(function (t) { return '<li>' + t + '</li>'; }).join('') + '</ul></div>' +
         '<div class="qsec qbody" data-sec="answer" style="display:none"><div class="qsec-title">答案</div>' + (q.answer_html || '') + '</div>' +
-        '<div class="qsec qbody" data-sec="solution" style="display:none"><div class="qsec-title">详解</div>' + (q.solution_html || '') + '</div>';
+        '<div class="qsec qbody" data-sec="solution" style="display:none"><div class="qsec-title">详解</div>' + (q.solution_html || '') + '</div>' +
+        (q.refine ? '<div class="qsec qbody refine" data-sec="refine" style="display:none"><div class="qsec-title">提炼（知识、卡点、考点、能力）</div>' + refineHtml(q.refine) + '</div>' : '') +
+        (q.refine && q.refine.variants ? '<div class="qsec qbody refine" data-sec="variants" style="display:none"><div class="qsec-title">改编方向</div>' + q.refine.variants + '</div>' : '');
     }
     return h + '</div>';
   }
@@ -543,7 +573,7 @@
       sel('f-type', '题型', Object.keys(B.stats.by_type).map(function (t) { return { v: t, t: t + '（' + B.stats.by_type[t] + '）' }; }), f.type) +
       sel('f-unit', '板块', UNITS.map(function (u) { return { v: u, t: u + '（' + (B.stats.by_unit[u] || 0) + '）' }; }), f.unit) +
       sel('f-paper', '试卷', B.papers.map(function (p) { return { v: p.id, t: p.title + '（' + p.count + '）' }; }), f.paper) +
-      '<label>关键词 <input type="text" id="f-kw" value="' + esc(f.kw) + '" placeholder="题干 / 题眼 / 小节，回车搜索"></label><button class="btn primary sm" id="f-go">筛选</button><button class="btn sm" id="f-clear">清空</button></div>' +
+      '<label>关键词 <input type="text" id="f-kw" value="' + esc(f.kw) + '" placeholder="题干 / 题眼 / 小节 / 考点，回车搜索"></label><button class="btn primary sm" id="f-go">筛选</button><button class="btn sm" id="f-clear">清空</button></div>' +
       '<div class="grid cols-4" style="margin-bottom:0"><div><div class="chart short" id="b-region"></div></div><div><div class="chart short" id="b-type"></div></div><div><div class="chart short" id="b-year"></div></div><div><div class="chart short" id="b-unit"></div></div></div></div>';
     h += '<div id="bank-result"></div>';
     view.innerHTML = h;
@@ -562,7 +592,7 @@
       if (f.type && q.type !== f.type) return false;
       if (f.unit && q.units.indexOf(f.unit) < 0) return false;
       if (f.paper && q.paper !== f.paper) return false;
-      if (kw) { var txt = (plainText(q.stem_html) + ' ' + q.tiyan_tag + ' ' + (q.tiyan || []).join(' ') + ' ' + q.id + ' ' + (q.sections || []).map(function (s) { return s.name + s.detail; }).join(' ')).toLowerCase(); if (txt.indexOf(kw) < 0) return false; }
+      if (kw) { var txt = (plainText(q.stem_html) + ' ' + q.tiyan_tag + ' ' + (q.tiyan || []).join(' ') + ' ' + q.id + ' ' + (q.sections || []).map(function (s) { return s.name + s.detail; }).join(' ') + ' ' + kdNames(q).join(' ')).toLowerCase(); if (txt.indexOf(kw) < 0) return false; }
       return true;
     });
     var cnt = function (arr, key) { var o = {}; arr.forEach(function (q) { var ks = key === 'units' ? q.units : [q[key]]; ks.forEach(function (k) { o[k] = (o[k] || 0) + 1; }); }); return o; };
