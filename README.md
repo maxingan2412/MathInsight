@@ -10,7 +10,7 @@
 <p>
 <img alt="version" src="https://img.shields.io/badge/version-0.1.0-2563eb">
 <img alt="python" src="https://img.shields.io/badge/python-3.10%2B-3776ab">
-<img alt="questions" src="https://img.shields.io/badge/题库-21%20套%20·%20436%20题-16a34a">
+<img alt="questions" src="https://img.shields.io/badge/题库-22%20套%20·%20458%20题-16a34a">
 <img alt="curriculum" src="https://img.shields.io/badge/课标-2017%20版%202020%20修订-f59e0b">
 <img alt="license" src="https://img.shields.io/badge/license-CC%20BY--NC--ND%204.0-lightgrey">
 </p>
@@ -171,10 +171,10 @@ python -m mathinsight variants SH-2024-18 --level 拔高 --dry     # 查看变�
 | 类别 | 内容 | 套数 | 题数 |
 |---|---|:---:|:---:|
 | 上海高考 | 2020–2026 秋考 | 7 | 147 |
-| 全国高考 | 新高考、新课标Ⅰ卷 2022–2026，Ⅱ卷 2025–2026，全国甲卷（理）2022–2024 | 10 | 208 |
+| 全国高考 | 新高考、新课标Ⅰ卷 2021–2026，Ⅱ卷 2025–2026，全国甲卷（理）2022–2024 | 11 | 230 |
 | 浙江高考 | 2022 | 1 | 22 |
 | 模拟考试 | 上海徐汇一模、成都三诊、宁波一模（2025 届） | 3 | 59 |
-| **合计** | | **21** | **436** |
+| **合计** | | **22** | **458** |
 
 每道题都有完整详解、教材小节与素养标注；题干字句尚待与原卷逐字核对的 17 道题已单独标记，组卷与推题默认不使用。
 
