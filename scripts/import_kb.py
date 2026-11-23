@@ -330,10 +330,16 @@ def main():
             if q["id"] in fix:
                 q.update(fix[q["id"]])
                 q["has_figure"] = "<svg" in q["stem_html"] or "<img" in q["stem_html"]
+    ty_cache: dict[str, dict] = {}
     for q in allq:
         for k in ("stem_html", "answer_html", "solution_html"):
             if q.get(k):
                 q[k] = unlink_local(q[k])
+        # 整卷 JSON 自己没带题眼的题, 用 数据/题眼/<试卷号>.json 里的补上
+        if not q.get("tiyan"):
+            tag, items = tiyan_text(ty_cache.setdefault(q["paper"], load_tiyan(root, q["paper"])).get(str(q["no"])))
+            if items:
+                q["tiyan_tag"], q["tiyan"] = tag, items
         # 题眼来源是纯文本, 网页端与 HTML 字段一样直接插入页面: 这里转义成 HTML 片段, 公式里的 < > 才不会被当成标签
         q["tiyan"] = [text_html(t) for t in q.get("tiyan") or []]
     # 填空题数值答案（供网页自动判分）；拿不准的不写

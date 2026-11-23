@@ -114,3 +114,11 @@ def test_gradient_paper_assembly_entry(mi, web_class):
     assert mi.page.locator("text=系统自动组卷").count() >= 1
     assert len(stages) >= 3
 
+
+def test_tiyan_for_mid_and_hard_questions(mi, web_bank):
+    """宣称：中档以上的题提炼「题眼」。按难度 ≥0.4（站内「中」档起点）统计没有题眼的题。"""
+    mid = [q for q in web_bank["questions"] if q["difficulty"] >= 0.4]
+    no = [q["id"] for q in mid if not q.get("tiyan")]
+    no_crux = [i for i in no if not ((next(q for q in mid if q["id"] == i).get("refine") or {}).get("crux"))]
+    assert not no, "%d / %d 道中档以上题没有「题眼」按钮（其中 %d 题在「提炼」里有卡点段），例如 %s" % (
+        len(no), len(mid), len(no) - len(no_crux), no[:10])
