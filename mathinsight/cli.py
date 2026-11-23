@@ -36,6 +36,7 @@ def main(argv=None):
     v.add_argument("qid")
     v.add_argument("--level", default="巩固")
     v.add_argument("--n", type=int, default=2)
+    v.add_argument("--distance", default="中", choices=["近", "中", "远"])
     v.add_argument("--dry", action="store_true", help="只打印提示词，不调用模型")
     args = ap.parse_args(argv)
     bank = QuestionBank.load()
@@ -77,9 +78,9 @@ def main(argv=None):
         from . import variants
         q = bank[args.qid]
         if args.dry:
-            print(variants.build_prompt(q, args.level, args.n))
+            print(variants.build_prompt(q, args.level, args.n, distance=args.distance, bank=bank))
         else:
-            print(json.dumps(variants.generate(q, args.level, args.n), ensure_ascii=False, indent=1))
+            print(json.dumps(variants.generate(q, args.level, args.n, distance=args.distance, bank=bank), ensure_ascii=False, indent=1))
 
 
 if __name__ == "__main__":
