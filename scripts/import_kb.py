@@ -8,6 +8,7 @@
     bank/papers.json        试卷元数据(地区、年份、类型、题量、满分)
     (另外合并知识库 数据/整卷/*.json 与 bank/source/*.json 中按统一格式整理的试卷)
     bank/questions.jsonl    每行一道题(题干、答案、详解、知识点、题眼、提炼、难度先验、素养标签)
+                            *_html、题眼 tiyan 与提炼里的长文字段都是 HTML 片段(公式里的 < > 已转义)
 
 知识库目录约定(与作者整理的详解库一致):
     真题详解/上海/上海高考数学YYYY_题目与详解.html
@@ -21,6 +22,7 @@
 from __future__ import annotations
 
 import argparse
+import html as html_lib
 import json
 import re
 import sys
@@ -86,7 +88,10 @@ def tiyan_text(entry: dict | None) -> tuple[str, list[str]]:
         return "", []
     parts = []
     for it in entry.get("items", []):
-        head = f"({it['part']}) " if it.get("part") else ""
+        part = (it.get("part") or "").strip()
+        if part and not part.startswith(("(", "（")):   # 题眼记录里的小问号多数已带括号, 不再套一层
+            part = f"({part})"
+        head = part + " " if part else ""
         parts.append(head + it.get("text", ""))
     return entry.get("tag", ""), parts
 
@@ -120,6 +125,11 @@ def _drop_rest_of_line(el):
 
 
 _SITE_LINK = re.compile(r'<a\b[^>]*\bhref="(?!https?://|#|mailto:)[^"]*"[^>]*>(.*?)</a>', re.S)
+
+
+def text_html(t: str) -> str:
+    """纯文本转 HTML 片段(只转义 & < >; 公式 $…$ 原样保留给网页端渲染)。"""
+    return html_lib.escape(t, quote=False)
 
 
 def unlink_local(html: str) -> str:
@@ -324,6 +334,8 @@ def main():
         for k in ("stem_html", "answer_html", "solution_html"):
             if q.get(k):
                 q[k] = unlink_local(q[k])
+        # 题眼来源是纯文本, 网页端与 HTML 字段一样直接插入页面: 这里转义成 HTML 片段, 公式里的 < > 才不会被当成标签
+        q["tiyan"] = [text_html(t) for t in q.get("tiyan") or []]
     # 填空题数值答案（供网页自动判分）；拿不准的不写
     n_fill = n_num = 0
     for q in allq:

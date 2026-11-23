@@ -56,6 +56,7 @@
   function dateStr(ts) { var d = new Date(ts); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2) + ' ' + ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); }
   function isToday(ts) { var d = new Date(ts), n = new Date(); return d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate(); }
   function chipUnit(u) { return '<span class="chip blue">' + esc(u) + '</span>'; }
+  function relaxedChip(it) { return it.relaxed ? '<span class="chip orange" title="该板块预计得分率在 60%–85% 的题不够，按离区间最近的题补足">区间内题不足，放宽</span>' : ''; }
   function roleBadge(r) { return '<span class="badge ' + (r === '挑战' ? 'role-tiao' : 'role-gu') + '">' + esc(r) + '</span>'; }
   function qBadges(q) {
     var s = '<span class="badge type">' + esc(q.type) + '</span><span class="badge region">' + esc(q.region) + ' ' + q.year + ' ' + esc(q.kind) + '</span>';
@@ -185,6 +186,14 @@
   }
   var AXIS_UNITS = { type: 'category', data: UNITS, axisLabel: { interval: 0, rotate: 32, fontSize: 11 } };
   var PCT_AXIS = { type: 'value', min: 0, max: 1, axisLabel: { formatter: function (v) { return Math.round(v * 100) + '%'; } } };
+  /* 纵轴范围按数据留出余量，刻度取整齐的步长（折线顶点不贴图边、刻度不挤在一起） */
+  function niceAxis(vals) {
+    var lo = Math.min.apply(null, [0].concat(vals)), hi = Math.max.apply(null, [0].concat(vals));
+    var span = (hi - lo) * 1.12 || 1, steps = [0.05, 0.1, 0.2, 0.25, 0.5, 1, 2, 5, 10];
+    var st = steps.filter(function (x) { return span / x <= 7; })[0] || steps[steps.length - 1];
+    var mn = Math.floor((lo - (lo < 0 ? span * 0.04 : 0)) / st) * st, mx = Math.ceil((hi + span * 0.08) / st) * st;
+    return { type: 'value', min: +mn.toFixed(6), max: +mx.toFixed(6), interval: st };
+  }
   function radarOpt(indicators, series, max) {
     return {
       tooltip: { trigger: 'item' },
@@ -293,13 +302,14 @@
     });
     ov.diagnoses.forEach(function (d, i) {
       chart('d-ev-' + i, {
-        tooltip: { trigger: 'axis' }, grid: { left: 8, right: 12, top: 10, bottom: 10, containLabel: true },
+        tooltip: { trigger: 'axis' }, grid: { left: 8, right: 12, top: 16, bottom: 10, containLabel: true },
         xAxis: { type: 'category', data: COMPS, axisLabel: { interval: 0, rotate: 32, fontSize: 10 } }, yAxis: { type: 'value', min: 0, max: 1 },
         series: [{ type: 'bar', data: COMPS.map(function (c) { return { value: d.evidence[c] || 0, itemStyle: { color: c === d.main_competency ? '#e34948' : '#2a78d6', borderRadius: [4, 4, 0, 0] } }; }), label: { show: true, position: 'top', fontSize: 10, formatter: function (p) { return p.value ? fix(p.value, 2) : ''; } }, barMaxWidth: 26 }]
       });
       chart('d-gm-' + i, {
-        tooltip: { trigger: 'axis' }, legend: { bottom: 0, icon: 'circle', itemWidth: 10, textStyle: { fontSize: 10 } }, grid: { left: 8, right: 8, top: 10, bottom: 28, containLabel: true },
-        xAxis: { type: 'category', data: COMPS, axisLabel: { interval: 0, rotate: 32, fontSize: 10 } }, yAxis: { type: 'value' },
+        tooltip: { trigger: 'axis' }, legend: { bottom: 0, icon: 'circle', itemWidth: 10, textStyle: { fontSize: 10 } }, grid: { left: 8, right: 8, top: 16, bottom: 28, containLabel: true },
+        xAxis: { type: 'category', data: COMPS, axisLabel: { interval: 0, rotate: 32, fontSize: 10 } },
+        yAxis: niceAxis(COMPS.map(function (c) { return d.class_gamma[c] || 0; }).concat(COMPS.map(function (c) { return d.weight_share[c] || 0; }))),
         series: [
           { name: '班级素养偏移 γ̄', type: 'bar', data: COMPS.map(function (c) { var v = d.class_gamma[c] || 0; return { value: v, itemStyle: { color: v < 0 ? '#d03b3b' : '#2a78d6', borderRadius: 3 } }; }), barMaxWidth: 20 },
           { name: '本板块素养权重', type: 'line', data: COMPS.map(function (c) { return d.weight_share[c] || 0; }), symbolSize: 6, lineStyle: { width: 2, color: '#eda100' }, itemStyle: { color: '#eda100' } }
@@ -350,11 +360,18 @@
     if (ex) h += '<div class="small muted mt">' + ex + '</div>';
     return h + '<div class="small muted mt">点考点名，在题库里查同一考点的题。</div>';
   }
+  function qTags(q) {
+    var cs = Object.keys(q.competencies || {}).sort(function (a, b) { return q.competencies[b] - q.competencies[a]; });
+    if (!q.theme && !cs.length) return '';
+    return '<div class="small muted qtags">' + (q.theme ? '<span class="lbl">课标主题</span><span class="chip violet">' + esc(q.theme) + '</span>' : '') +
+      (cs.length ? '<span class="lbl">素养权重</span>' + cs.map(function (c) { return '<span class="chip gray">' + esc(c) + ' ' + pct(q.competencies[c]) + '</span>'; }).join('') : '') + '</div>';
+  }
   function questionCard(q, extra, opts) {
     opts = opts || {};
-    var h = '<div class="qcard" id="qc-' + esc(q.id) + '"><div class="qcard-head"><span class="qid">' + esc(q.id) + '</span>' + qBadges(q) + '<span>' + q.score + ' 分</span><span>难度 ' + fix(q.difficulty, 2) + '</span>' + (q.tiyan_tag ? '<span class="chip violet">题眼：' + esc(q.tiyan_tag) + '</span>' : '') + '<span class="spacer"></span>' + (extra || '') + '</div>' +
+    var h = '<div class="qcard" id="qc-' + esc(q.id) + '"><div class="qcard-head"><span class="qid">' + esc(q.id) + '</span>' + qBadges(q) + (opts.score != null && opts.score !== q.score ? '<span title="原题 ' + q.score + ' 分，本卷按 ' + opts.score + ' 分计">本卷 ' + opts.score + ' 分（原题 ' + q.score + ' 分）</span>' : '<span>' + q.score + ' 分</span>') + '<span>难度 ' + fix(q.difficulty, 2) + '</span>' + (q.tiyan_tag ? '<span class="chip violet">题眼：' + esc(q.tiyan_tag) + '</span>' : '') + '<span class="spacer"></span>' + (extra || '') + '</div>' +
       '<div class="qbody">' + (q.stem_html || '') + '</div>' +
-      '<div class="small muted mt">' + q.units.map(chipUnit).join('') + ' ' + (q.sections || []).map(function (s) { return '<span class="chip gray">' + esc(s.book + ' ' + s.sec + ' ' + s.name) + '</span>'; }).join('') + '</div>';
+      '<div class="small muted mt">' + q.units.map(chipUnit).join('') + ' ' + (q.sections || []).map(function (s) { return '<span class="chip gray">' + esc(s.book + ' ' + s.sec + ' ' + s.name) + '</span>'; }).join('') + '</div>' +
+      qTags(q);
     if (opts.toggles) {
       h += '<div class="qtoggles">' +
         (q.tiyan && q.tiyan.length ? '<button class="btn sm" data-tg="tiyan" data-q="' + esc(q.id) + '">题眼</button>' : '') +
@@ -396,16 +413,16 @@
       cardHtml('成绩与名次走势', '左轴：得分（实线本人，虚线班级均分）；右轴：名次（越上越靠前）', '<div class="chart" id="s-trend"></div>') +
       cardHtml('错因分布', '近几次考试教师标注的错因', '<div class="chart" id="s-err"></div>') + '</div>';
     h += '<div class="grid cols-2">' +
-      cardHtml('板块掌握度与班内百分位', '条：掌握度；菱形：班级均值；右侧：班内百分位（P）', '<div class="chart" id="s-units" style="height:' + (UNITS.length * 28 + 60) + 'px"></div>') +
+      cardHtml('板块掌握度与班内百分位', '条：掌握度（蓝 = 不低于班级均值，橙 = 低于）；菱形：班级均值；右侧：掌握度与班内百分位（P）', '<div class="chart" id="s-units" style="height:' + (UNITS.length * 28 + 60) + 'px"></div>') +
       '<div>' + cardHtml('教师评价与自动标签', '', (p.comments.length ? p.comments.map(function (c) { return '<div class="comment"><span class="date">' + esc(c.date) + '</span>' + esc(c.text) + '</div>'; }).join('') : '<div class="muted">暂无评语</div>') + '<div class="tag-row">' + p.tags.map(function (t) { return '<span class="chip ' + (t.sign === '+' ? 'good' : 'bad') + '">' + (t.sign === '+' ? '＋' : '－') + ' ' + esc(t.category) + ' · ' + esc(t.tag) + '</span>'; }).join('') + '</div>') +
       '<div style="height:16px"></div>' + cardHtml('个性化建议', '', '<ol class="advice-list">' + p.advice.map(function (a) { return '<li>' + esc(a) + '</li>'; }).join('') + '</ol>') + '</div></div>';
     var n = sum(p.practice.groups.map(function (g) { return g.items.length; }));
-    h += '<div class="card"><div class="card-title"><span>推荐练习（' + n + ' 题）</span><a class="btn primary sm" href="#/practice/' + sid + '">去练习</a></div><div class="card-sub">按弱项板块推荐；「预计得分率」是模型预测该生本题的得分率，巩固题偏易、挑战题偏难</div>';
+    h += '<div class="card"><div class="card-title"><span>推荐练习（' + n + ' 题）</span><a class="btn primary sm" href="#/practice/' + sid + '">去练习</a></div><div class="card-sub">按弱项板块推荐；「预计得分率」是模型预测该生本题的得分率，巩固题取 60%–85%（不足时放宽并标出）、挑战题取 40%–55%</div>';
     p.practice.groups.forEach(function (g) {
       h += '<h3 style="font-size:14px;margin:12px 0 8px">' + chipUnit(g.unit) + ' 掌握度 ' + pct(g.mastery) + '</h3>';
       g.items.forEach(function (it) {
         var q = QMAP.get(it.qid); if (!q) return;
-        h += questionCard(q, '<span class="chip gray">预计得分率 ' + pct(it.pred) + '</span>' + roleBadge(it.role) + ' <a class="btn sm" href="#/practice/' + sid + '?q=' + esc(it.qid) + '">去练习</a>', { hideTail: true });
+        h += questionCard(q, '<span class="chip gray">预计得分率 ' + pct(it.pred) + '</span>' + relaxedChip(it) + roleBadge(it.role) + ' <a class="btn sm" href="#/practice/' + sid + '?q=' + esc(it.qid) + '">去练习</a>', { hideTail: true });
       });
     });
     h += '</div></div></div>';
@@ -418,11 +435,11 @@
     chart('s-comp-radar', radarOpt(COMPS, [{ name: p.name, value: p.competencies.map(function (u) { return u.mastery; }), color: '#1baf7a' }, { name: '班级均值', value: p.competencies.map(function (u) { return u.class_mean; }), dashed: true, color: '#898781' }]));
     chart('s-trend', {
       tooltip: { trigger: 'axis', formatter: function (ps) { var t = p.trend[ps[0].dataIndex]; return t.title + '<br>得分 ' + t.total + ' / ' + t.full + '（班级均分 ' + fix(t.class_mean) + '）<br>名次 第 ' + t.rank + ' / ' + C.students.length; } },
-      legend: { bottom: 0, icon: 'circle' }, grid: { left: 8, right: 36, top: 24, bottom: 30, containLabel: true },
-      xAxis: { type: 'category', data: p.trend.map(function (t) { return t.title.replace('高三', ''); }), boundaryGap: false },
+      legend: { bottom: 0, icon: 'circle' }, grid: { left: 8, right: 12, top: 24, bottom: 30, containLabel: true },
+      xAxis: { type: 'category', data: p.trend.map(function (t) { return t.title.replace('高三', ''); }), boundaryGap: true, axisLabel: { interval: 0 } },
       yAxis: [{ type: 'value', min: 0, max: p.trend[0].full, axisLabel: { formatter: '{value} 分' } }, { type: 'value', inverse: true, min: 1, max: C.students.length, splitLine: { show: false }, axisLabel: { formatter: '第{value}' } }],
       series: [
-        { name: '得分', type: 'line', data: p.trend.map(function (t) { return t.total; }), symbolSize: 8, lineStyle: { width: 2 }, label: { show: true, position: 'top', color: '#52514e' } },
+        { name: '得分', type: 'line', data: p.trend.map(function (t) { return t.total; }), symbolSize: 8, lineStyle: { width: 2 }, label: { show: true, position: 'top', color: '#52514e', backgroundColor: 'rgba(255,255,255,0.85)', padding: [1, 3], borderRadius: 3 }, z: 3 },
         { name: '班级均分', type: 'line', data: p.trend.map(function (t) { return t.class_mean; }), symbol: 'none', lineStyle: { width: 2, type: 'dashed', color: '#898781' }, itemStyle: { color: '#898781' } },
         { name: '名次', type: 'line', yAxisIndex: 1, data: p.trend.map(function (t) { return t.rank; }), symbol: 'diamond', symbolSize: 9, lineStyle: { width: 2, color: '#eb6834' }, itemStyle: { color: '#eb6834' } }
       ]
@@ -431,10 +448,11 @@
     var us = p.units.slice().sort(function (a, b) { return b.mastery - a.mastery; });
     chart('s-units', {
       tooltip: { trigger: 'axis', formatter: function (ps) { var u = us[ps[0].dataIndex]; return '<b>' + u.unit + '</b><br>掌握度 ' + pct(u.mastery) + '（班级均值 ' + pct(u.class_mean) + '）<br>相对偏移 δ ' + fix(u.delta, 2) + '<br>班内百分位 P' + Math.round(u.percentile * 100) + '<br>证据量 ' + fix(u.evidence); } },
-      legend: { bottom: 0, icon: 'circle' }, grid: { left: 8, right: 56, top: 6, bottom: 28, containLabel: true },
-      xAxis: PCT_AXIS, yAxis: { type: 'category', data: us.map(function (u) { return u.unit; }), inverse: true, axisLabel: { fontSize: 11 } },
+      legend: { bottom: 0, icon: 'circle', data: ['班级均值'] }, grid: { left: 8, right: 8, top: 6, bottom: 28, containLabel: true },
+      xAxis: PCT_AXIS, yAxis: [{ type: 'category', data: us.map(function (u) { return u.unit; }), inverse: true, axisLabel: { fontSize: 11 } },
+        { type: 'category', position: 'right', data: us.map(function (u) { return pct(u.mastery) + '  P' + Math.round(u.percentile * 100); }), inverse: true, axisLine: { show: false }, axisLabel: { fontSize: 11, color: '#52514e' } }],
       series: [
-        { name: '掌握度', type: 'bar', data: us.map(function (u) { return { value: u.mastery, itemStyle: { color: u.mastery >= u.class_mean ? '#2a78d6' : '#eb6834', borderRadius: [0, 4, 4, 0] } }; }), barMaxWidth: 16, label: { show: true, position: 'right', formatter: function (pp) { return pct(pp.value) + '  P' + Math.round(us[pp.dataIndex].percentile * 100); }, fontSize: 11, color: '#52514e' } },
+        { name: '掌握度', type: 'bar', data: us.map(function (u) { return { value: u.mastery, itemStyle: { color: u.mastery >= u.class_mean ? '#2a78d6' : '#eb6834', borderRadius: [0, 4, 4, 0] } }; }), barMaxWidth: 16 },
         { name: '班级均值', type: 'scatter', data: us.map(function (u) { return u.class_mean; }), symbol: 'diamond', symbolSize: 10, itemStyle: { color: '#0b0b0b' } }
       ]
     });
@@ -525,7 +543,7 @@
       tooltip: { trigger: 'axis', formatter: function (ps) { var c = a.curve[ps[0].dataIndex]; var q = QMAP.get(c.qid); return '第 ' + c.no + ' 题 · ' + c.type + ' · ' + c.score + ' 分<br>' + c.qid + (q ? '（' + q.units.join('、') + '）' : '') + '<br>难度 ' + fix(c.difficulty, 2) + (C.item_rate[c.qid] != null && cur !== 'NEXT' ? '<br>全班得分率 ' + pct(C.item_rate[c.qid]) : ''); } },
       legend: { bottom: 0, icon: 'circle' }, grid: { left: 8, right: 12, top: 16, bottom: 30, containLabel: true },
       xAxis: { type: 'category', data: a.curve.map(function (c) { return c.no; }), name: '题号' }, yAxis: { type: 'value', min: 0, max: 1 },
-      series: [{ name: '难度', type: 'line', data: a.curve.map(function (c) { return c.difficulty; }), symbol: 'none', lineStyle: { width: 2, color: '#c3c2b7' }, markLine: { silent: true, symbol: 'none', data: [{ yAxis: a.mean_difficulty }], lineStyle: { type: 'dashed', color: '#898781' }, label: { position: 'insideEndTop', formatter: '平均 ' + fix(a.mean_difficulty, 2), color: '#52514e' } } }].concat(types.map(function (t, i) {
+      series: [{ name: '难度', type: 'line', data: a.curve.map(function (c) { return c.difficulty; }), symbol: 'none', lineStyle: { width: 2, color: '#c3c2b7' }, itemStyle: { color: '#c3c2b7' }, markLine: { silent: true, symbol: 'none', data: [{ yAxis: a.mean_difficulty }], lineStyle: { type: 'dashed', color: '#898781' }, label: { position: 'insideEndTop', formatter: '平均 ' + fix(a.mean_difficulty, 2), color: '#52514e' } } }].concat(types.map(function (t, i) {
         return { name: t, type: 'scatter', symbolSize: 10, itemStyle: { color: PAL[i] }, data: a.curve.map(function (c) { return c.type === t ? c.difficulty : null; }) };
       }))
     });
@@ -538,24 +556,26 @@
     lst.addEventListener('click', function (e) {
       var a2 = e.target.closest('a[data-open]'); if (!a2) return; e.preventDefault();
       var tr = lst.querySelector('tr[data-row="' + a2.dataset.open + '"]'), td = tr.firstElementChild;
-      if (tr.style.display === 'none') { if (!td.innerHTML) { td.innerHTML = questionCard(QMAP.get(a2.dataset.open), '', { toggles: true }); tex(td); } tr.style.display = ''; } else tr.style.display = 'none';
+      if (tr.style.display === 'none') { if (!td.innerHTML) { var cv = a.curve.filter(function (c) { return c.qid === a2.dataset.open; })[0]; td.innerHTML = questionCard(QMAP.get(a2.dataset.open), '', { toggles: true, score: cv && cv.score }); tex(td); } tr.style.display = ''; } else tr.style.display = 'none';
     });
     bindToggles(lst);
     // 覆盖矩阵
     var mdata = [], mu = Object.keys(pc.matrix);
     mu.forEach(function (u, ui) { pc.matrix[u].forEach(function (v, ei) { mdata.push([ei, ui, v]); }); });
     var mx = Math.max.apply(null, mdata.map(function (d) { return d[2]; }));
+    mdata = mdata.map(function (d) { return { value: d, label: { color: d[2] > mx * 0.6 ? '#fff' : '#0b0b0b' } }; });
+    var examNames = pc.exams.map(function (e) { var ex = C.exams.filter(function (x) { return x.id === e; })[0]; return ex ? ex.title.replace('高三', '') : e; });
     chart('p-matrix', {
-      tooltip: { formatter: function (p) { return mu[p.data[1]] + ' · ' + pc.exams[p.data[0]] + '：' + pct(p.data[2], 1); } },
+      tooltip: { formatter: function (p) { return mu[p.value[1]] + ' · ' + examNames[p.value[0]] + '：' + pct(p.value[2], 1); } },
       grid: { left: 8, right: 70, top: 8, bottom: 8, containLabel: true },
-      xAxis: { type: 'category', data: pc.exams.map(function (e) { var ex = C.exams.filter(function (x) { return x.id === e; })[0]; return ex ? ex.title.replace('高三', '') : e; }) },
+      xAxis: { type: 'category', data: examNames },
       yAxis: { type: 'category', data: mu, inverse: true, axisLabel: { fontSize: 11 } },
-      visualMap: { min: 0, max: mx, right: 0, top: 'middle', orient: 'vertical', itemHeight: 120, inRange: { color: SEQ }, formatter: function (v) { return Math.round(v * 100) + '%'; }, textStyle: { fontSize: 10 } },
-      series: [{ type: 'heatmap', data: mdata, label: { show: true, formatter: function (p) { return p.data[2] ? Math.round(p.data[2] * 100) + '%' : '—'; }, fontSize: 10, color: '#0b0b0b' }, itemStyle: { borderColor: '#fff', borderWidth: 1 } }]
+      visualMap: { min: 0, max: mx, right: 0, top: 'middle', orient: 'vertical', itemHeight: 120, inRange: { color: SEQ }, text: [Math.round(mx * 100) + '%', '0%'], textGap: 6, textStyle: { fontSize: 10 } },
+      series: [{ type: 'heatmap', data: mdata, label: { show: true, formatter: function (p) { return p.value[2] ? Math.round(p.value[2] * 100) + '%' : '—'; }, fontSize: 10 }, itemStyle: { borderColor: '#fff', borderWidth: 1 } }]
     });
     chart('p-cum', {
-      tooltip: { trigger: 'axis' }, grid: { left: 8, right: 16, top: 46, bottom: 8, containLabel: true }, title: { text: '累计覆盖板块数', left: 'center', top: 4 },
-      xAxis: { type: 'category', data: pc.exams, boundaryGap: false }, yAxis: { type: 'value', min: 0, max: UNITS.length, minInterval: 1 },
+      tooltip: { trigger: 'axis' }, grid: { left: 8, right: 16, top: 58, bottom: 8, containLabel: true }, title: { text: '累计覆盖板块数', left: 'center', top: 4 },
+      xAxis: { type: 'category', data: examNames, boundaryGap: true, axisLabel: { interval: 0, fontSize: 10 } }, yAxis: { type: 'value', min: 0, max: UNITS.length, interval: 2 },
       series: [{ type: 'line', data: pc.cumulative_units, symbolSize: 8, lineStyle: { width: 2, color: '#1baf7a' }, itemStyle: { color: '#1baf7a' }, areaStyle: { opacity: .1 }, label: { show: true, position: 'top', color: '#52514e' } }]
     });
   };
@@ -574,7 +594,7 @@
       sel('f-unit', '板块', UNITS.map(function (u) { return { v: u, t: u + '（' + (B.stats.by_unit[u] || 0) + '）' }; }), f.unit) +
       sel('f-paper', '试卷', B.papers.map(function (p) { return { v: p.id, t: p.title + '（' + p.count + '）' }; }), f.paper) +
       '<label>关键词 <input type="text" id="f-kw" value="' + esc(f.kw) + '" placeholder="题干 / 题眼 / 小节 / 考点，回车搜索"></label><button class="btn primary sm" id="f-go">筛选</button><button class="btn sm" id="f-clear">清空</button></div>' +
-      '<div class="grid cols-4" style="margin-bottom:0"><div><div class="chart short" id="b-region"></div></div><div><div class="chart short" id="b-type"></div></div><div><div class="chart short" id="b-year"></div></div><div><div class="chart short" id="b-unit"></div></div></div></div>';
+      '<div class="grid bank-charts" style="margin-bottom:0"><div><div class="chart short" id="b-region"></div></div><div><div class="chart short" id="b-type"></div></div><div><div class="chart short" id="b-year"></div></div><div><div class="chart short" id="b-unit"></div></div></div></div>';
     h += '<div id="bank-result"></div>';
     view.innerHTML = h;
     function go() {
@@ -592,13 +612,13 @@
       if (f.type && q.type !== f.type) return false;
       if (f.unit && q.units.indexOf(f.unit) < 0) return false;
       if (f.paper && q.paper !== f.paper) return false;
-      if (kw) { var txt = (plainText(q.stem_html) + ' ' + q.tiyan_tag + ' ' + (q.tiyan || []).join(' ') + ' ' + q.id + ' ' + (q.sections || []).map(function (s) { return s.name + s.detail; }).join(' ') + ' ' + kdNames(q).join(' ')).toLowerCase(); if (txt.indexOf(kw) < 0) return false; }
+      if (kw) { var txt = (plainText(q.stem_html) + ' ' + q.tiyan_tag + ' ' + htmlToText((q.tiyan || []).join(' ')) + ' ' + q.id + ' ' + (q.sections || []).map(function (s) { return s.name + s.detail; }).join(' ') + ' ' + kdNames(q).join(' ')).toLowerCase(); if (txt.indexOf(kw) < 0) return false; }
       return true;
     });
     var cnt = function (arr, key) { var o = {}; arr.forEach(function (q) { var ks = key === 'units' ? q.units : [q[key]]; ks.forEach(function (k) { o[k] = (o[k] || 0) + 1; }); }); return o; };
     var barOpt = function (title, obj, order) {
       var keys = order ? order.filter(function (k) { return obj[k]; }) : Object.keys(obj);
-      return { title: { text: title, left: 'center', top: 0 }, tooltip: { trigger: 'axis' }, grid: { left: 6, right: 6, top: 28, bottom: 6, containLabel: true }, xAxis: { type: 'category', data: keys, axisLabel: { fontSize: 10, interval: 0, rotate: keys.length > 4 ? 35 : 0 } }, yAxis: { type: 'value', minInterval: 1 }, series: [{ type: 'bar', data: keys.map(function (k) { return obj[k]; }), itemStyle: { borderRadius: [3, 3, 0, 0] }, barMaxWidth: 28, label: { show: keys.length <= 8, position: 'top', fontSize: 10, color: '#52514e' } }] };
+      return { title: { text: title, left: 'center', top: 0 }, tooltip: { trigger: 'axis' }, grid: { left: 6, right: 6, top: 28, bottom: 6, containLabel: true }, xAxis: { type: 'category', data: keys, axisLabel: { fontSize: 10, interval: 0, rotate: keys.length > 8 ? 45 : keys.length > 4 ? 35 : 0 } }, yAxis: { type: 'value', minInterval: 1 }, series: [{ type: 'bar', data: keys.map(function (k) { return obj[k]; }), itemStyle: { borderRadius: [3, 3, 0, 0] }, barMaxWidth: 28, label: { show: keys.length <= 8, position: 'top', fontSize: 10, color: '#52514e' } }] };
     };
     chart('b-region', barOpt('按地区（当前筛选）', cnt(res, 'region')));
     chart('b-type', barOpt('按题型', cnt(res, 'type'), ['填空', '单选', '多选', '解答']));
@@ -672,7 +692,6 @@
   }
   function aiHintsText(it, q) {
     var lv = (it && it.hints ? it.hints : []).slice();
-    (q.tiyan || []).forEach(function (t) { lv.push('题眼：' + htmlToText(t)); });
     return lv.map(function (t, i) { return (i + 1) + '. ' + htmlToText(t); }).join('\n');
   }
   function aiRecordText(q, rec) {
@@ -770,7 +789,7 @@
   PAGES.practice = function (sid, query) {
     setLastStudent(sid);
     var p = C.profiles[sid], st = loadState(sid);
-    var items = []; p.practice.groups.forEach(function (g) { g.items.forEach(function (it) { if (QMAP.get(it.qid)) items.push({ unit: g.unit, mastery: g.mastery, qid: it.qid, pred: it.pred, role: it.role, hints: it.hints || [], q: QMAP.get(it.qid) }); }); });
+    var items = []; p.practice.groups.forEach(function (g) { g.items.forEach(function (it) { if (QMAP.get(it.qid)) items.push({ unit: g.unit, mastery: g.mastery, qid: it.qid, pred: it.pred, role: it.role, relaxed: !!it.relaxed, hints: it.hints || [], q: QMAP.get(it.qid) }); }); });
     var idx = 0;
     if (query.q) { var k = items.findIndex(function (x) { return x.qid === query.q; }); if (k >= 0) idx = k; }
     else { var k2 = items.findIndex(function (x) { return !st.records[x.qid]; }); if (k2 >= 0) idx = k2; }
@@ -789,8 +808,8 @@
     function renderQ() {
       var it = items[idx], q = it.q, rec = st.records[q.id], done = !!rec || live.submitted;
       var choice = q.type === '单选' || q.type === '多选', numq = !choice && hasNumAnswer(q);
-      var levels = it.hints.slice(); if (q.tiyan && q.tiyan.length) levels = levels.concat(q.tiyan.map(function (t) { return '【题眼】' + t; }));
-      var h2 = '<div class="qcard-head"><span>第 ' + (idx + 1) + ' / ' + items.length + ' 题</span>' + chipUnit(it.unit) + roleBadge(it.role) + '<span class="chip gray">预计得分率 ' + pct(it.pred) + '</span><span class="qid">' + esc(q.id) + '</span>' + qBadges(q) + '<span>' + q.score + ' 分</span></div>';
+      var levels = it.hints.slice();
+      var h2 = '<div class="qcard-head"><span>第 ' + (idx + 1) + ' / ' + items.length + ' 题</span>' + chipUnit(it.unit) + roleBadge(it.role) + '<span class="chip gray">预计得分率 ' + pct(it.pred) + '</span>' + relaxedChip(it) + '<span class="qid">' + esc(q.id) + '</span>' + qBadges(q) + '<span>' + q.score + ' 分</span></div>';
       h2 += '<div class="qbody" style="font-size:15px">' + (q.stem_html || '') + '</div>';
       if (choice) {
         var ans = answerLetters(q), pickedSet = rec ? rec.answer : live.picked.join('');

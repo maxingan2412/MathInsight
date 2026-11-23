@@ -65,6 +65,6 @@ class QuestionBank:
             "by_region": dict(Counter(q["region"] for q in self.questions)),
             "by_kind": dict(Counter(q["kind"] for q in self.questions)),
             "by_type": dict(Counter(q["type"] for q in self.questions)),
-            "by_unit": dict(Counter(q["units"][0] for q in self.questions)),
+            "by_unit": dict(Counter(u for q in self.questions for u in q["units"])),   # 含该板块的题数(一题可属多个板块)
             "years": sorted({q["year"] for q in self.questions}),
         }

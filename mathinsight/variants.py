@@ -17,6 +17,7 @@ MI_LLM_MODEL      模型名
 """
 from __future__ import annotations
 
+import html
 import json
 import os
 import re
@@ -56,7 +57,7 @@ def strip_html(s: str) -> str:
 
 def build_prompt(q: dict, level: str = "巩固", n: int = 2) -> str:
     sections = "、".join(f'{s["book"]} {s["sec"]} {s.get("name", "")}' for s in q["sections"]) or "高中数学"
-    core = "\n".join(q.get("tiyan", [])) or "（无题眼记录，请先归纳本题的关键步骤再命题）"
+    core = html.unescape("\n".join(q.get("tiyan", []))) or "（无题眼记录，请先归纳本题的关键步骤再命题）"
     return PROMPT.format(n=n, level=level, stem=strip_html(q["stem_html"]), answer=strip_html(q["answer_html"]),
                          core=core, sections=sections, level_desc=LEVELS[level])
 

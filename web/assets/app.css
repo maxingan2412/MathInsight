@@ -108,6 +108,7 @@ input, select, textarea { font-family: inherit; font-size: 13px; }
 .filters label { font-size: 12px; color: var(--ink2); display: flex; align-items: center; gap: 6px; }
 .filters select, .filters input[type=text], .select, .input { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; background: #fff; color: var(--ink); }
 .filters input[type=text] { min-width: 200px; }
+#f-kw { width: 19em; }
 
 /* 表格 */
 .table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -381,3 +382,7 @@ input, select, textarea { font-family: inherit; font-size: 13px; }
 .ai-pack-msg.warn { color: #8a4b00; }
 #s-ai-box .ai-pack { margin: 0 0 8px; }
 .ai-pack-head .btn { white-space: nowrap; flex-shrink: 0; }
+.qtags { margin-top: 4px; }
+.qtags .lbl { margin: 0 6px 0 0; }
+.qtags .chip + .lbl { margin-left: 10px; }
+.bank-charts { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2fr); }

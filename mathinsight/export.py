@@ -32,7 +32,7 @@ def run(class_dir: Path, bank: QuestionBank | None = None) -> dict:
     for k, sid in enumerate(fit.students):
         p = analytics.student_profile(fit, k, resp, exams, table, bank, cls["comments"])
         p["name"] = names.get(sid, sid)
-        p["practice"] = recommend(fit, k, bank, done=done_by.get(sid, set()))
+        p["practice"] = recommend(fit, k, bank, done=done_by.get(sid, set()), units=p["weak"])
         profiles[sid] = p
 
     overview = analytics.class_overview(fit, resp, bank, exams, table)
